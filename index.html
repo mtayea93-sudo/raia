@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>رعايتك — رعاية طبية منزلية</title>
+<meta name="description" content="رعايتك — دكتور وتمريض وسحب عينات تحاليل لباب البيت. اطلب في دقيقة، تابع ملفك الطبي كامل.">
+<meta name="theme-color" content="#0a1424">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a1424; --bg2:#0f1d33; --card:rgba(255,255,255,.055); --card2:rgba(255,255,255,.09);
+  --stroke:rgba(255,255,255,.12); --ink:#eef4ff; --muted:#93a4c0;
+  --teal:#14c8b2; --teal2:#0da595; --gold:#e8b84b; --red:#ff5d6c; --green:#3ddc84;
+  --r:18px; --shadow:0 18px 50px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+body{font-family:'Cairo',system-ui,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;overflow-x:hidden}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:1rem;color:var(--ink)}
+img{max-width:100%}
+
+/* ===== خلفية متحركة ===== */
+#bgfx{position:fixed;inset:0;z-index:-2;background:
+  radial-gradient(60% 45% at 85% 0%,rgba(20,200,178,.16),transparent 60%),
+  radial-gradient(50% 40% at 10% 20%,rgba(232,184,75,.10),transparent 60%),
+  radial-gradient(70% 60% at 50% 110%,rgba(30,94,255,.14),transparent 65%),
+  var(--bg)}
+.orb{position:fixed;border-radius:50%;filter:blur(70px);opacity:.5;z-index:-1;pointer-events:none;animation:float 14s ease-in-out infinite}
+.orb.o1{width:280px;height:280px;background:rgba(20,200,178,.22);top:-80px;right:-60px}
+.orb.o2{width:220px;height:220px;background:rgba(232,184,75,.16);bottom:10%;left:-70px;animation-delay:-5s}
+.orb.o3{width:180px;height:180px;background:rgba(30,94,255,.20);top:40%;right:30%;animation-delay:-9s}
+@keyframes float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-26px) scale(1.06)}}
+
+/* ===== الهيكل ===== */
+.wrap{max-width:640px;margin:0 auto;padding:0 16px 110px}
+.topbar{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  background:rgba(10,20,36,.75);border-bottom:1px solid var(--stroke)}
+.topbar-in{max-width:640px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:10px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:900;font-size:1.12rem}
+.brand img{width:34px;height:34px;border-radius:10px;object-fit:cover;box-shadow:0 4px 14px rgba(20,200,178,.4)}
+.brand small{display:block;font-size:.62rem;color:var(--muted);font-weight:600}
+.bell{position:relative;background:var(--card);border:1px solid var(--stroke);width:42px;height:42px;border-radius:13px;display:grid;place-items:center;color:var(--ink)}
+.bell .bdg{position:absolute;top:-5px;left:-5px;min-width:19px;height:19px;border-radius:10px;background:var(--red);color:#fff;font-size:.68rem;font-weight:800;display:grid;place-items:center;padding:0 4px}
+.sp{flex:1}
+.chip{background:var(--card);border:1px solid var(--stroke);border-radius:999px;padding:7px 13px;font-size:.78rem;font-weight:700;display:inline-flex;align-items:center;gap:6px}
+
+/* ===== كروت ===== */
+.card{background:var(--card);border:1px solid var(--stroke);border-radius:var(--r);padding:20px;margin-top:16px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 8px 26px rgba(0,0,0,.25);animation:up .45s cubic-bezier(.2,.8,.3,1) both}
+@keyframes up{from{opacity:0;transform:translateY(16px)}}
+.card h3{font-size:1.02rem;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.field{margin-bottom:13px}
+.field label{display:block;font-size:.8rem;font-weight:700;color:var(--muted);margin-bottom:6px}
+.inp{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--stroke);border-radius:13px;padding:13px 15px;outline:none;transition:border .2s,box-shadow .2s}
+.inp:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(20,200,178,.18)}
+select.inp{appearance:none}
+textarea.inp{resize:vertical;min-height:88px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-size:.72rem;color:var(--muted);margin-top:5px;line-height:1.7}
+
+/* أزرار */
+.btn{border:0;border-radius:14px;padding:14px 20px;font-weight:800;font-size:.95rem;transition:transform .15s,filter .2s;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn:active{transform:scale(.97)}
+.btn-p{background:linear-gradient(135deg,var(--teal),var(--teal2));color:#04231f;box-shadow:0 10px 26px rgba(20,200,178,.35)}
+.btn-g{background:linear-gradient(135deg,#f2c14e,var(--gold));color:#3a2a05}
+.btn-o{background:var(--card2);color:var(--ink);border:1px solid var(--stroke)}
+.btn-d{background:rgba(255,93,108,.14);color:var(--red);border:1px solid rgba(255,93,108,.35)}
+.btn-block{width:100%}
+.btn-sm{padding:8px 14px;font-size:.8rem;border-radius:11px}
+.btn[disabled]{opacity:.55;pointer-events:none}
+
+/* ===== شاشة الدخول ===== */
+.auth-hero{text-align:center;padding:44px 10px 8px}
+.auth-logo{width:96px;height:96px;border-radius:26px;object-fit:cover;box-shadow:0 18px 44px rgba(20,200,178,.45);animation:pop .6s cubic-bezier(.2,.9,.3,1.4) both}
+@keyframes pop{from{transform:scale(.5);opacity:0}}
+.auth-hero h1{font-size:2.3rem;font-weight:900;margin-top:16px;background:linear-gradient(120deg,#fff 30%,var(--teal) 70%,var(--gold));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.auth-hero p{color:var(--muted);font-size:.92rem;margin-top:6px;line-height:1.9}
+.ecg{margin:22px auto 0;display:block;max-width:420px}
+.ecg path{fill:none;stroke:var(--teal);stroke-width:2.5;stroke-linecap:round;stroke-dasharray:600;stroke-dashoffset:600;animation:ecg 3.2s linear infinite;filter:drop-shadow(0 0 6px rgba(20,200,178,.8))}
+@keyframes ecg{to{stroke-dashoffset:-600}}
+.pulse{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--red);margin-left:6px;animation:pl 1.1s ease-in-out infinite;vertical-align:middle}
+@keyframes pl{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(255,93,108,.5)}50%{transform:scale(1.25);box-shadow:0 0 0 9px rgba(255,93,108,0)}}
+
+.tabs{display:flex;background:rgba(0,0,0,.3);border-radius:14px;padding:5px;margin-bottom:16px;border:1px solid var(--stroke)}
+.tabs button{flex:1;border:0;background:transparent;color:var(--muted);font-weight:800;padding:11px;border-radius:10px;font-size:.9rem;transition:.2s}
+.tabs button.active{background:linear-gradient(135deg,var(--teal),var(--teal2));color:#04231f}
+
+/* بطاقات اختيار الدور/الخدمة */
+.pick{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pick2{grid-template-columns:1fr 1fr}
+.pick label{border:1.5px solid var(--stroke);background:var(--card);border-radius:15px;padding:15px 8px;text-align:center;cursor:pointer;transition:.2s;display:block}
+.pick input{display:none}
+.pick .ic{font-size:1.7rem;display:block;margin-bottom:6px}
+.pick b{font-size:.82rem;display:block}
+.pick small{font-size:.66rem;color:var(--muted)}
+.pick input:checked+span{color:var(--ink)}
+.pick label:has(input:checked){border-color:var(--teal);background:rgba(20,200,178,.13);box-shadow:0 0 0 3px rgba(20,200,178,.15)}
+
+/* خدمات الرئيسية */
+.svc{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-top:14px}
+.svc button{border:1px solid var(--stroke);background:var(--card);border-radius:17px;padding:19px 8px;color:var(--ink);transition:.2s;text-align:center}
+.svc button:active{transform:scale(.95)}
+.svc .ic{font-size:2rem;display:block;margin-bottom:8px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.4))}
+.svc b{font-size:.85rem;display:block}
+.svc small{font-size:.66rem;color:var(--muted);font-weight:600}
+
+/* حالات */
+.case{border:1px solid var(--stroke);background:var(--card);border-radius:16px;padding:15px;margin-top:11px;transition:.2s;cursor:pointer}
+.case:active{transform:scale(.985)}
+.st{display:inline-block;padding:4px 12px;border-radius:999px;font-size:.7rem;font-weight:800}
+.st-new{background:rgba(232,184,75,.16);color:var(--gold);border:1px solid rgba(232,184,75,.4)}
+.st-assigned{background:rgba(30,94,255,.18);color:#8fb3ff;border:1px solid rgba(30,94,255,.4)}
+.st-way{background:rgba(20,200,178,.15);color:var(--teal);border:1px solid rgba(20,200,178,.4)}
+.st-done{background:rgba(61,220,132,.14);color:var(--green);border:1px solid rgba(61,220,132,.35)}
+.meta{font-size:.75rem;color:var(--muted);line-height:1.9;margin-top:8px}
+.meta b{color:var(--ink)}
+
+/* شريط سفلي */
+.bottomnav{position:fixed;bottom:0;right:0;left:0;z-index:50;background:rgba(10,20,36,.88);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--stroke);padding:8px 6px calc(8px + env(safe-area-inset-bottom))}
+.bottomnav-in{max-width:640px;margin:0 auto;display:flex}
+.bottomnav button{flex:1;background:0;border:0;color:var(--muted);font-size:.68rem;font-weight:800;padding:7px 2px;display:flex;flex-direction:column;align-items:center;gap:3px;border-radius:12px}
+.bottomnav button .ic{font-size:1.3rem;transition:.2s}
+.bottomnav button.active{color:var(--teal)}
+.bottomnav button.active .ic{transform:translateY(-2px) scale(1.12)}
+
+/* إشعارات */
+.notif{display:flex;gap:11px;border:1px solid var(--stroke);background:var(--card);border-radius:15px;padding:13px;margin-top:10px;animation:up .4s both}
+.notif.unread{border-color:rgba(20,200,178,.45);background:rgba(20,200,178,.07)}
+.notif .ni{width:40px;height:40px;border-radius:12px;background:var(--card2);display:grid;place-items:center;font-size:1.15rem;flex-shrink:0}
+.notif p{font-size:.78rem;color:var(--muted);line-height:1.7;margin-top:2px}
+.notif time{font-size:.66rem;color:var(--muted);opacity:.8}
+
+/* علامات حيوية */
+.vitals{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:12px}
+.vital{background:rgba(0,0,0,.25);border:1px solid var(--stroke);border-radius:14px;padding:12px 9px;text-align:center}
+.vital .vv{font-size:1.25rem;font-weight:900;color:var(--teal)}
+.vital .vl{font-size:.66rem;color:var(--muted);font-weight:700;margin-top:2px}
+.vrow{display:flex;justify-content:space-between;align-items:center;border-top:1px dashed var(--stroke);padding:10px 2px;font-size:.8rem}
+.vrow time{color:var(--muted);font-size:.7rem}
+
+/* ملفات */
+.files{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:12px}
+.files img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:13px;border:1px solid var(--stroke);cursor:pointer;transition:.2s}
+.files img:active{transform:scale(.95)}
+.fadd{aspect-ratio:1;border:1.5px dashed var(--stroke);border-radius:13px;display:grid;place-items:center;color:var(--muted);font-size:1.6rem;cursor:pointer;background:var(--card)}
+
+/* مودال */
+.modal{position:fixed;inset:0;z-index:200;background:rgba(4,9,18,.72);backdrop-filter:blur(6px);display:grid;place-items:center;padding:18px;animation:fade .2s}
+@keyframes fade{from{opacity:0}}
+.modal-box{background:var(--bg2);border:1px solid var(--stroke);border-radius:20px;max-width:460px;width:100%;max-height:88vh;overflow:auto;padding:24px;animation:pop .3s cubic-bezier(.2,.9,.3,1.3)}
+.modal-box h3{font-weight:900;margin-bottom:14px}
+
+/* توست */
+.toast{position:fixed;bottom:96px;right:50%;transform:translateX(50%);background:#132339;border:1px solid var(--stroke);color:var(--ink);padding:13px 22px;border-radius:13px;font-size:.86rem;font-weight:700;z-index:300;box-shadow:var(--shadow);animation:pop .3s;max-width:90%;text-align:center}
+.toast.ok{border-color:rgba(61,220,132,.5);color:var(--green)}
+.toast.err{border-color:rgba(255,93,108,.5);color:var(--red)}
+
+/* بانر التثبيت */
+#install-banner{position:fixed;bottom:0;right:0;left:0;z-index:250;padding:14px 16px calc(14px + env(safe-area-inset-bottom));background:linear-gradient(135deg,#0f2a26,#0a1424);border-top:1px solid rgba(20,200,178,.4);display:flex;align-items:center;gap:12px;animation:up .5s both}
+#install-banner img{width:44px;height:44px;border-radius:12px}
+#install-banner .txt{flex:1;font-size:.8rem;line-height:1.6}
+#install-banner .txt b{font-size:.9rem}
+
+/* التوقيع */
+.sig{position:fixed;bottom:4px;left:8px;z-index:60;font-size:.6rem;font-weight:800;color:rgba(147,164,192,.55);letter-spacing:.5px;direction:ltr;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+
+.empty{text-align:center;padding:34px 12px;color:var(--muted)}
+.empty .ic{font-size:2.6rem;display:block;margin-bottom:10px;opacity:.6}
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.stat{background:var(--card);border:1px solid var(--stroke);border-radius:15px;padding:14px 10px;text-align:center}
+.stat b{font-size:1.5rem;font-weight:900;color:var(--teal);display:block}
+.stat span{font-size:.68rem;color:var(--muted);font-weight:700}
+.qrbox{background:#fff;border-radius:18px;padding:16px;text-align:center;margin-top:12px}
+.qrbox img{width:230px;height:230px;object-fit:contain}
+.payrow{display:flex;align-items:center;gap:10px;border:1.5px solid var(--stroke);border-radius:14px;padding:13px;margin-top:10px;cursor:pointer;background:var(--card)}
+.payrow:has(input:checked){border-color:var(--gold);background:rgba(232,184,75,.1)}
+.payrow input{accent-color:var(--gold)}
+.wa-btn{background:rgba(61,220,132,.13);border:1px solid rgba(61,220,132,.4);color:var(--green)}
+@media (max-width:380px){.pick{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div id="bgfx"></div>
+<div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
+
+<header class="topbar" id="topbar" hidden>
+  <div class="topbar-in">
+    <span class="brand"><img src="icon-192.png" alt="رعايتك"><span>رعايتك<small>رعاية طبية منزلية</small></span></span>
+    <span class="sp"></span>
+    <button class="bell" id="bell-btn" title="الإشعارات">🔔<span class="bdg" id="bell-bdg" hidden></span></button>
+    <button class="chip" id="me-chip" title="حسابي">👤</button>
+  </div>
+</header>
+
+<main id="app" class="wrap"></main>
+
+<nav class="bottomnav" id="bottomnav" hidden>
+  <div class="bottomnav-in">
+    <button data-nav="home"><span class="ic">🏠</span>الرئيسية</button>
+    <button data-nav="cases"><span class="ic">🗂️</span>الحالات</button>
+    <button data-nav="notifs"><span class="ic">🔔</span>الإشعارات</button>
+    <button data-nav="me"><span class="ic">👤</span>حسابي</button>
+  </div>
+</nav>
+
+<div id="modal-root"></div>
+<div id="toast" hidden></div>
+
+<div id="install-banner" hidden>
+  <img src="icon-192.png" alt="">
+  <div class="txt"><b>📲 ثبّت «رعايتك» كتطبيق على موبايلك</b><br>شغال أسرع وبيوصلك إشعار الحالة أول بأول</div>
+  <button class="btn btn-p btn-sm" id="install-btn">تثبيت</button>
+  <button class="btn btn-o btn-sm" id="install-x">✕</button>
+</div>
+
+<div class="sig">m_tayea</div>
+
+<script>
+(function () {
+  var V = 'raia-2026-11-11';
+  window.APP_VERSION = V;
+  function nukedReload() {
+    if (window.__nuking) return; window.__nuking = true;
+    if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then(function (rs) { rs.forEach(function (r) { r.unregister(); }); });
+    if ('caches' in window) caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); });
+    setTimeout(function () { location.replace(location.pathname + '?mtu=' + Date.now() + location.hash); }, 300);
+  }
+  async function checkVersion() {
+    try {
+      var r = await fetch('version.json?ts=' + Date.now(), { cache: 'no-store' });
+      var j = await r.json();
+      if (j && j.v && j.v !== V && !sessionStorage.getItem('raia_nuked')) {
+        try { sessionStorage.setItem('raia_nuked', '1'); } catch (e) {}
+        nukedReload();
+      }
+    } catch (e) {}
+  }
+  checkVersion();
+  setInterval(checkVersion, 45000);
+  if ('serviceWorker' in navigator) {
+    var hadController = !!navigator.serviceWorker.controller;
+    var refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController || refreshing) return;
+      refreshing = true; location.reload();
+    });
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+    setInterval(function () {
+      navigator.serviceWorker.getRegistration().then(function (reg) { if (reg) reg.update(); });
+    }, 45000);
+  }
+})();
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="app.js?v=raia-2026-11-11"></script>
+<script src="https://m-tayea.mtayea.com/signature/mtayea-signature.js"></script>
+</body>
+</html>
