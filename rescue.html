@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>أداة استرجاع بيانات رعايتك</title>
+<style>
+  body { font-family: system-ui, 'Segoe UI', Tahoma, sans-serif; background: #0a1424; color: #eef4ff; margin: 0; padding: 20px; }
+  .box { max-width: 620px; margin: 0 auto; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 26px; }
+  h1 { font-size: 1.3rem; margin: 0 0 8px; }
+  p { font-size: .92rem; line-height: 1.9; color: #93a4c0; margin: 6px 0; }
+  .lab { border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 14px; margin-top: 12px; }
+  .lab b { display: block; margin-bottom: 6px; }
+  .lab small { color: #93a4c0; display: block; margin-bottom: 10px; line-height: 1.8; }
+  button { background: #14c8b2; color: #04231f; border: 0; border-radius: 10px; padding: 12px 22px; font-size: .95rem; font-weight: 800; cursor: pointer; }
+  button.all { background: #e8b84b; color: #3a2a05; width: 100%; margin-top: 14px; padding: 15px; font-size: 1.05rem; }
+  .none { text-align: center; padding: 30px 10px; color: #93a4c0; }
+  .big { font-size: 3rem; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>🚑 أداة استرجاع بيانات رعايتك</h1>
+  <p>بتدور على بيانات رعايتك المحفوظة في المتصفح <b>ده تحديدًا</b> — لو فيه بيانات هتنزّلها فورًا.</p>
+  <div id="out"><p style="text-align:center">⏳ جاري البحث...</p></div>
+</div>
+<script>
+(function () {
+  var out = document.getElementById('out');
+  var pack = {};
+  ['raia_users', 'raia_cases', 'raia_notifs', 'raia_settings'].forEach(function (k) {
+    var v = localStorage.getItem(k);
+    if (v) { try { pack[k] = JSON.parse(v); } catch (e) {} }
+  });
+  var found = Object.keys(pack);
+  if (!found.length) {
+    out.innerHTML = '<div class="none"><div class="big">😔</div>مفيش أي بيانات رعايتك محفوظة في المتصفح ده<br><small>جرب من أي جهاز أو متصفح تاني استخدمت الموقع منه</small></div>';
+    return;
+  }
+  var cases = pack.raia_cases || {};
+  var nCases = Object.keys(cases).length;
+  var html = '<p style="color:#3ddc84;font-weight:700">✅ لقيت بيانات! نزّلها فورًا:</p>' +
+    '<div class="lab"><b>📦 بيانات رعايتك على الجهاز ده</b>' +
+    '<small>مستخدمين: ' + Object.keys(pack.raia_users || {}).length + ' — حالات: ' + nCases + '</small></div>' +
+    '<button class="all" onclick="dl()">⬇️ تنزيل كل البيانات في ملف واحد</button>';
+  out.innerHTML = html;
+  window.dl = function () {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'raia-rescue', at: new Date().toISOString(), data: pack })], { type: 'application/json' }));
+    a.download = 'نسخة-احتياطية-رعايتك.json';
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+})();
+</script>
+</body>
+</html>
