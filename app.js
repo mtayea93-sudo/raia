@@ -1,11 +1,12 @@
 /* ============================================================
    رعايتك — رعاية طبية منزلية | m_tayea
-   الإصدار: raia-2026-11-11
+   الإصدار: raia-2026-11-12
    ملف واحد: حسابات + حالات + ملف مريض + سحابة Firebase RTDB
    ============================================================ */
 'use strict';
 
-const APP_VERSION = 'raia-2026-11-11';
+const APP_VERSION = 'raia-2026-11-12';
+const OWNER_PHONE = '01060651837'; // رقم المالك — يقدر يسجل بأي دور وبأكتر من حساب
 const PHONE_RE = /^01[0-9]{9}$/;
 const EMAIL_SUF = '@raia.app';
 
@@ -21,7 +22,7 @@ const GOVS = ['القاهرة','الجيزة','الإسكندرية','الدقه
 const SVC = {
   doctor: { ic: '🩺', name: 'زيارة طبيب', desc: 'كشف منزلي كامل' },
   nurse:  { ic: '🤲', name: 'تمريض منزلي', desc: 'حقن وغيارات ومتابعة' },
-  lab:    { ic: '🧪', name: 'سحب عينات', desc: 'تحاليل لباب البيت' }
+  lab:    { ic: '🧪', name: 'سحب عينات تحاليل', desc: 'تحاليل لباب البيت' }
 };
 const STATUS = {
   new:      { t: 'جديدة', cls: 'st-new' },
@@ -123,7 +124,7 @@ let ME = null;            // المستخدم الحالي {uid,name,phone,role,
 let USERS = LSget('raia_users', {});    // uid -> user
 let CASES = LSget('raia_cases', {});    // id -> case
 let NOTIFS = LSget('raia_notifs', {});  // id -> notif (بتاعتي بس)
-let SETTINGS = LSget('raia_settings', { instaQr: '', adminHash: null, adminSalt: null });
+let SETTINGS = LSget('raia_settings', { instaQr: '', adminHash: null, adminSalt: null, payEnabled: false });
 let SUBS = { cases: {}, vitals: {}, files: {}, rx: {} };   // بيانات فرعية محمّلة للحالة المفتوحة
 let CLOUD = { ready: false, online: false };
 let CUR = { case: null, tab: 'home', providerTab: 'new' };
@@ -151,7 +152,7 @@ function flushCloud() {
 function dbRef(p) { return firebase.database().ref('raia/' + p); }
 
 function pushUser(u) {
-  if (!CLOUD.ready) return;
+  if (!CLOUD.ready || (u && u.preview)) return;
   const c = Object.assign({}, u);
   cloudSchedule(() => dbRef('users/' + u.uid).set(c));
 }
@@ -169,7 +170,7 @@ function pushNotif(toUid, n) {
 }
 function pushSettings() {
   if (!CLOUD.ready) return;
-  cloudSchedule(() => dbRef('settings').set({ instaQr: SETTINGS.instaQr, adminHash: SETTINGS.adminHash, adminSalt: SETTINGS.adminSalt }));
+  cloudSchedule(() => dbRef('settings').set({ instaQr: SETTINGS.instaQr, adminHash: SETTINGS.adminHash, adminSalt: SETTINGS.adminSalt, payEnabled: !!SETTINGS.payEnabled }));
 }
 function pushSub(kind, caseId, id, val) {
   if (!CLOUD.ready) return;
@@ -207,6 +208,7 @@ function attachCloud() {
     const v = s.val();
     if (v && typeof v === 'object') {
       if (v.instaQr !== undefined) SETTINGS.instaQr = v.instaQr;
+      if (v.payEnabled !== undefined) SETTINGS.payEnabled = v.payEnabled;
       if (v.adminHash) { SETTINGS.adminHash = v.adminHash; SETTINGS.adminSalt = v.adminSalt; }
       persistLocal();
     }
@@ -291,8 +293,8 @@ async function doAuth(e) {
       const name = $('#f-name').value.trim();
       if (name.split(/\s+/).length < 2) throw new Error('اكتب اسمك على الأقل اسمين');
       const role = document.querySelector('input[name=f-role]:checked').value;
-      const existing = Object.values(USERS).find(u => u.phone === phone);
-      if (existing) throw new Error('الرقم ده مسجل قبل كده — ادخل بيه من تسجيل الدخول');
+      const existing = Object.values(USERS).find(u => u.phone === phone && u.role === role);
+      if (existing && phone !== OWNER_PHONE) throw new Error('الرقم ده مسجل بنفس الدور قبل كده — ادخل بيه من تسجيل الدخول');
       const hp = await SEC.hashNew(pass);
       const u = { uid: uid(), name, phone, role, salt: hp.salt, pass: hp.pass, gov: '', centers: '', active: true, createdAt: Date.now() };
       USERS[u.uid] = u;
@@ -302,19 +304,40 @@ async function doAuth(e) {
       toast('🎉 أهلاً بيك في رعايتك يا ' + name.split(' ')[0], 'ok');
       if (role !== 'patient') setTimeout(() => { location.hash = '#/me'; CUR.tab = 'me'; render(); }, 400);
     } else {
-      const u = Object.values(USERS).find(x => x.phone === phone);
-      const v = await SEC.verify(u, pass);
-      if (!v.ok) throw new Error('الرقم أو كلمة المرور غلط — جرّب تاني');
-      if (v.upgraded) { u.salt = v.rec.salt; u.pass = v.rec.pass; delete u.password; pushUser(u); }
-      if (u.active === false) throw new Error('الحساب موقوف من الإدارة — تواصل معانا');
-      ME = u;
-      enterApp();
-      toast('أهلاً بعودتك يا ' + u.name.split(' ')[0], 'ok');
+      const cands = Object.values(USERS).filter(x => x.phone === phone);
+      if (!cands.length) throw new Error('الرقم أو كلمة المرور غلط — جرّب تاني');
+      const matches = [];
+      for (const c of cands) { const v = await SEC.verify(c, pass); if (v.ok) matches.push({ u: c, v }); }
+      if (!matches.length) throw new Error('الرقم أو كلمة المرور غلط — جرّب تاني');
+      if (matches.length > 1) { pickAccount(matches); return; }
+      await loginAs(matches[0].u, matches[0].v);
     }
   } catch (err) {
     toast(err.message || 'حصل خطأ، حاول تاني', 'err');
   }
   btn.disabled = false;
+}
+
+let PICK_MATCHES = [];
+function pickAccount(matches) {
+  PICK_MATCHES = matches;
+  openModal(`<h3>👥 الرقم ده عليه ${matches.length} حسابات — اختار</h3>
+    ${matches.map((m, i) => `<button class="btn btn-o btn-block" style="margin-top:8px;text-align:right" onclick="loginPick(${i})">${m.u.role === 'patient' ? '🧑' : m.u.role === 'doctor' ? '🩺' : m.u.role === 'nurse' ? '🤲' : '🧪'} <b>${esc(m.u.name)}</b> <small style="color:var(--muted)">(${ROLE_T[m.u.role]})</small></button>`).join('')}
+    <button class="btn btn-d btn-block" style="margin-top:10px" onclick="closeModal()">إلغاء</button>`);
+}
+async function loginPick(i) {
+  const m = PICK_MATCHES[i];
+  if (!m) return;
+  PICK_MATCHES = [];
+  closeModal();
+  await loginAs(m.u, m.v);
+}
+async function loginAs(u, v) {
+  if (v.upgraded) { u.salt = v.rec.salt; u.pass = v.rec.pass; delete u.password; pushUser(u); }
+  if (u.active === false) throw new Error('الحساب موقوف من الإدارة — تواصل معانا');
+  ME = u;
+  enterApp();
+  toast('أهلاً بعودتك يا ' + u.name.split(' ')[0], 'ok');
 }
 
 function enterApp() {
@@ -376,6 +399,18 @@ function render() {
   else if (CUR.tab === 'me') renderMe();
   else if (CUR.tab === 'case') renderCaseFile();
   else if (CUR.tab === 'new') renderNewCase();
+  // شريط خروج وضع المعاينة
+  let pv = $('#preview-bar');
+  if (ME.preview) {
+    if (!pv) {
+      pv = document.createElement('div');
+      pv.id = 'preview-bar';
+      pv.style.cssText = 'position:fixed;top:0;right:0;left:0;z-index:400;background:linear-gradient(90deg,#3a2b00,#4a3500);border-bottom:1px solid var(--gold);color:#ffd97a;padding:10px 14px;font-size:.8rem;font-weight:800;display:flex;align-items:center;gap:10px;justify-content:center';
+      document.body.appendChild(pv);
+    }
+    pv.innerHTML = '👁️ وضع معاينة — مش بيحفظ أي حاجة <button class="btn btn-g btn-sm" onclick="exitPreview()">⬅ رجوع للوحة التحكم</button>';
+    pv.style.display = 'flex';
+  } else if (pv) pv.style.display = 'none';
 }
 
 function go(tab) { CUR.tab = tab; render(); window.scrollTo({ top: 0 }); }
@@ -473,15 +508,17 @@ function renderNewCase() {
       <div class="field"><label>تليفون بديل (اختياري)</label><input class="inp" id="nc-phone2" inputmode="numeric" maxlength="11" placeholder="01xxxxxxxxx"></div>
       <div class="field"><label>&nbsp;</label><label class="payrow" style="margin-top:0"><input type="checkbox" id="nc-wa" checked><span>💬 الرقم متاح عليه واتساب</span></label></div>
     </div>
+    ${SETTINGS.payEnabled ? `
     <div class="field"><label>طريقة الدفع</label>
       <div class="payrow"><input type="radio" name="nc-pay" value="insta" checked><span>📱 <b>إنستا باي</b> — هتظهرلك صورة الـ QR بعد الطلب</span></div>
-      <div class="payrow"><input type="radio" name="nc-pay" value="cash"><span>💵 <b>كاش</b> — تدفع بعد ما الخدمة تتعمل</span></div>
-    </div>
+      <div class="payrow"><input type="radio" name="nc-pay" value="cash"><span>💵 <b>كاش</b> — هتظهرلك صورة الـ QR برضه بعد الطلب</span></div>
+    </div>` : ''}
     <button class="btn btn-p btn-block" id="nc-btn" onclick="submitCase()">إرسال الطلب 🚀</button>
   </div>`;
 }
 
 async function submitCase() {
+  if (noPreview()) return;
   const btn = $('#nc-btn'); btn.disabled = true;
   try {
     const name = $('#nc-name').value.trim();
@@ -496,7 +533,7 @@ async function submitCase() {
     const p2 = $('#nc-phone2').value.trim();
     if (p2 && !PHONE_RE.test(p2)) throw new Error('التليفون البديل مش صحيح');
     const wa = $('#nc-wa').checked;
-    const pay = document.querySelector('input[name=nc-pay]:checked').value;
+    const pay = SETTINGS.payEnabled && document.querySelector('input[name=nc-pay]:checked') ? document.querySelector('input[name=nc-pay]:checked').value : 'cash';
     const c = {
       id: uid(), patientUid: ME.uid, patientName: name, patientPhone: ME.phone,
       type: document.querySelector('input[name=nc-type]:checked').value,
@@ -518,11 +555,8 @@ async function submitCase() {
       title: SVC[c.type].ic + ' طلب ' + SVC[c.type].name + ' جديد',
       body: 'في ' + c.gov + ' — ' + c.center + ' (' + name + ') — اضغط للتفاصيل'
     }));
-    if (pay === 'insta' && SETTINGS.instaQr) {
-      openModal(`<h3>📱 الدفع بإنستا باي</h3><p style="font-size:.85rem;color:var(--muted);line-height:1.9">امسح الـ QR بإنستا باي وحوّل قيمة الخدمة، وبعدها اضغط «حوّلت».</p><div class="qrbox"><img src="${SETTINGS.instaQr}" alt="QR"></div><button class="btn btn-p btn-block" style="margin-top:14px" onclick="markPaid('${c.id}')">✅ حوّلت — تأكيد</button><button class="btn btn-o btn-block" style="margin-top:8px" onclick="closeModal();finishNewCase('${c.id}')">هحوّل بعدين</button>`);
-    } else if (pay === 'insta') {
-      toast('طلبك اتسجل ✅ — الدفع كاش هيكون عند الزيارة أو بتواصل معاك');
-      finishNewCase(c.id);
+    if (SETTINGS.payEnabled && SETTINGS.instaQr) {
+      openModal(`<h3>📱 الدفع</h3><p style="font-size:.85rem;color:var(--muted);line-height:1.9">امسح الـ QR بحسب طريقة الدفع اللي اخترتها، وبعدها اضغط «حوّلت / دفعت».</p><div class="qrbox"><img src="${SETTINGS.instaQr}" alt="QR"></div><button class="btn btn-p btn-block" style="margin-top:14px" onclick="markPaid('${c.id}')">✅ حوّلت / دفعت — تأكيد</button><button class="btn btn-o btn-block" style="margin-top:8px" onclick="closeModal();finishNewCase('${c.id}')">هحوّل بعدين</button>`);
     } else {
       toast('طلبك اتسجل ✅ هنبلغك أول ما حد يستلمه', 'ok');
       finishNewCase(c.id);
@@ -564,6 +598,11 @@ function renderCaseFile() {
   const lastV = vitals[0];
 
   let html = `
+  <div style="display:flex;gap:8px;margin-bottom:2px">
+    <button class="btn btn-o btn-sm" onclick="go('cases')">⬅ رجوع</button>
+    <button class="btn btn-o btn-sm" onclick="go('home')">🏠 الرئيسية</button>
+    <button class="btn btn-d btn-sm" style="margin-inline-start:auto" onclick="if(confirm('هتسجل خروج؟'))logout()">⏻ خروج</button>
+  </div>
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
       <h3 style="margin:0">${svc.ic} ${svc.name}</h3>
@@ -604,9 +643,9 @@ function renderCaseFile() {
     <h3>🧪 التحاليل والأشعة (صور)</h3>
     <div class="files">
       ${files.map(f => `<img src="${f.data}" alt="${esc(f.name)}" onclick="viewImg('${f.id}')">`).join('')}
-      <label class="fadd" title="رفع صورة تحليل">＋<input type="file" accept="image/*" hidden onchange="uploadFile('${c.id}', this)"></label>
+      <label class="fadd" title="رفع صور التحاليل — اضغط واختر صورة أو أكتر">＋<input type="file" accept="image/*" multiple hidden onchange="uploadFile('${c.id}', this)"></label>
     </div>
-    ${files.length ? `<p class="hint">اضغط على أي صورة لتكبيرها</p>` : '<p class="hint">ارفع صورة أي تحليل (أي صيغة) — بتتضغط وتتخزن في ملف المريض الخاص</p>'}
+    ${files.length ? `<p class="hint">اضغط على أي صورة لتكبيرها — تقدر ترفع أي عدد صور</p>` : '<p class="hint">ارفع صور التحاليل (أي صيغة وأي عدد) — بتتضغط وتتخزن في ملف المريض الخاص</p>'}
   </div>
 
   <div class="card">
@@ -642,6 +681,7 @@ function addVitalModal(id) {
     <button class="btn btn-p btn-block" onclick="saveVital('${id}')">💾 حفظ القياس</button>`);
 }
 async function saveVital(id) {
+  if (noPreview()) return;
   const g = x => ($('#v-' + x) || {}).value;
   const atEl = $('#v-at').value;
   const at = atEl ? new Date(atEl).getTime() : Date.now();
@@ -657,20 +697,26 @@ async function saveVital(id) {
 }
 
 async function uploadFile(id, inp) {
-  const f = inp.files && inp.files[0];
-  if (!f) return;
-  toast('⏳ جاري رفع الصورة...');
-  try {
-    const data = await compressImage(f, 1280, .82);
-    const fid = uid();
-    const rec = { id: fid, name: f.name, data, by: ME.uid, byName: ME.name, at: Date.now() };
-    pushSub('files', id, fid, rec);
-    const c = CASES[id]; c._files = c._files || {}; c._files[fid] = rec; persistLocal();
-    if (c.patientUid !== ME.uid) pushNotif(c.patientUid, { id: uid(), caseId: id, read: false, at: Date.now(), title: '🧪 صورة تحليل جديدة', body: 'المكلف رفع صورة لملفك' });
-    render();
-    toast('✅ اترفعت الصورة', 'ok');
-  } catch (e) { toast('❌ الصورة مش راضية تترفع، جرّب صورة تانية', 'err'); }
+  if (noPreview()) { inp.value = ''; return; }
+  const list = Array.from(inp.files || []);
+  if (!list.length) return;
+  toast(list.length > 1 ? `⏳ جاري رفع ${list.length} صور...` : '⏳ جاري رفع الصورة...');
+  let done = 0;
+  for (const f of list) {
+    try {
+      const data = await compressImage(f, 1280, .82);
+      const fid = uid();
+      const rec = { id: fid, name: f.name, data, by: ME.uid, byName: ME.name, at: Date.now() + done };
+      pushSub('files', id, fid, rec);
+      const c = CASES[id]; c._files = c._files || {}; c._files[fid] = rec; persistLocal();
+      done++;
+    } catch (e) {}
+  }
+  const c = CASES[id];
+  if (c && c.patientUid !== ME.uid) pushNotif(c.patientUid, { id: uid(), caseId: id, read: false, at: Date.now(), title: '🧪 صور تحاليل جديدة', body: 'المكلف رفع ' + done + ' صورة لملفك' });
   inp.value = '';
+  render();
+  toast(done ? `✅ اترفعت ${done} صورة` : '❌ الصور مش راضية تترفع، جرّب صور تانية', done ? 'ok' : 'err');
 }
 
 function addRxModal(id) {
@@ -680,6 +726,7 @@ function addRxModal(id) {
     <button class="btn btn-p btn-block" onclick="saveRx('${id}')">💾 حفظ</button>`);
 }
 async function saveRx(id) {
+  if (noPreview()) return;
   const text = $('#rx-text').value.trim();
   const imgF = $('#rx-img').files[0];
   if (!text && !imgF) { toast('اكتب العلاج أو ارفع صورة', 'err'); return; }
@@ -708,6 +755,7 @@ function viewImgSrc(src, name) {
    إجراءات مقدمي الخدمة + المريض
    ============================================================ */
 function acceptCase(id) {
+  if (noPreview()) return;
   const c = CASES[id];
   if (!c || c.status !== 'new') return;
   c.status = 'assigned';
@@ -726,6 +774,7 @@ function acceptCase(id) {
   toast('✅ استلمت الحالة — تواصل مع المريض وحدد المعاد', 'ok');
 }
 function setStatus(id, st) {
+  if (noPreview()) return;
   const c = CASES[id];
   if (!c) return;
   c.status = st;
@@ -738,6 +787,7 @@ function setStatus(id, st) {
   toast(st === 'way' ? '🚗 اتسجل: بدأت الطريق' : '🎉 ألف سلامة عليه', 'ok');
 }
 function cancelCase(id) {
+  if (noPreview()) return;
   const c = CASES[id];
   if (!c || !confirm('متأكد إنك عايز تلغي الطلب ده؟')) return;
   c.status = 'done';
@@ -828,11 +878,15 @@ function renderMe() {
     <h3>🔐 الأمان</h3>
     <button class="btn btn-o btn-block" onclick="changePassModal()">تغيير كلمة المرور</button>
   </div>
-  <button class="btn btn-d btn-block" style="margin-top:16px" onclick="if(confirm('هتخرج من الحساب؟'))logout()">⏻ خروج</button>
+  <div style="display:flex;gap:8px;margin-top:16px">
+    <button class="btn btn-o" style="flex:1" onclick="go('home')">🏠 الرئيسية</button>
+    <button class="btn btn-d" style="flex:1" onclick="if(confirm('هتسجل خروج؟'))logout()">⏻ تسجيل الخروج</button>
+  </div>
   <p style="text-align:center;margin-top:14px;font-size:.66rem;color:var(--muted)">رعايتك · الإصدار ${APP_VERSION}</p>`;
 }
 
 function saveCoverage() {
+  if (noPreview()) return;
   ME.gov = $('#me-gov').value;
   ME.centers = $('#me-centers').value.trim();
   USERS[ME.uid] = ME;
@@ -843,6 +897,7 @@ function saveCoverage() {
 }
 
 async function cloudSyncNow() {
+  if (noPreview()) return;
   if (!CLOUD.ready || !CLOUD.online) { toast('⚠️ مفيش نت دلوقتي — المزامنة هتتم أول ما النت يرجع', 'err'); return; }
   toast('⏳ بمزامن...');
   try {
@@ -861,6 +916,7 @@ function changePassModal() {
     <button class="btn btn-p btn-block" onclick="doChangePass()">💾 تغيير</button>`);
 }
 async function doChangePass() {
+  if (noPreview()) return;
   const oldP = $('#cp-old').value, newP = $('#cp-new').value;
   const v = await SEC.verify(ME, oldP);
   if (!v.ok) { toast('القديمة غلط', 'err'); return; }
@@ -928,6 +984,21 @@ function renderAdminHome() {
     <label class="btn btn-o btn-block" style="margin-top:10px;cursor:pointer">📤 ${SETTINGS.instaQr ? 'تغيير الصورة' : 'رفع صورة QR'}<input type="file" accept="image/*" hidden onchange="uploadInstaQr(this)"></label>
   </div>
   <div class="card">
+    <h3>💳 طرق الدفع</h3>
+    <p class="hint" style="margin-bottom:10px">حاليًا: <b style="color:${SETTINGS.payEnabled ? 'var(--green)' : 'var(--muted)'}">${SETTINGS.payEnabled ? 'ظاهرة للمرضى' : 'مخفية من فورم الطلب'}</b> — الكاش والإنستا الاتنين بيظهروا QR.</p>
+    <button class="btn ${SETTINGS.payEnabled ? 'btn-d' : 'btn-p'} btn-block" onclick="togglePay()">${SETTINGS.payEnabled ? '⏸️ إخفاء طرق الدفع' : '▶️ إظهار طرق الدفع'}</button>
+  </div>
+  <div class="card">
+    <h3>👁️ معاينة الموقع كأي فئة</h3>
+    <p class="hint" style="margin-bottom:10px">ادخل بعين المريض أو الطبيب أو التمريض أو المعمل وشوف الموقع زي ما بيظهرلهم بالظبط.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button class="btn btn-o" onclick="previewAs('patient')">🧑 مريض</button>
+      <button class="btn btn-o" onclick="previewAs('doctor')">🩺 طبيب</button>
+      <button class="btn btn-o" onclick="previewAs('nurse')">🤲 تمريض</button>
+      <button class="btn btn-o" onclick="previewAs('lab')">🧪 معمل</button>
+    </div>
+  </div>
+  <div class="card">
     <h3>🗂️ كل الحالات (${cases.length})</h3>
     ${cases.sort((a, b) => b.createdAt - a.createdAt).slice(0, 30).map(c => {
       const s = STATUS[c.status] || STATUS.new;
@@ -960,6 +1031,36 @@ async function uploadInstaQr(inp) {
     toast('✅ اترفعت صورة الـ QR — هتظهر للمرضى دلوقتي', 'ok');
   } catch (e) { toast('❌ حصل مشكلة في الرفع', 'err'); }
   inp.value = '';
+}
+function togglePay() {
+  SETTINGS.payEnabled = !SETTINGS.payEnabled;
+  persistLocal();
+  pushSettings();
+  render();
+  toast(SETTINGS.payEnabled ? '▶️ طرق الدفع ظاهرة دلوقتي للمرضى' : '⏸️ اتخفت طرق الدفع من فورم الطلب', 'ok');
+}
+
+/* معاينة الموقع كأي فئة — وضع تجريبي مش بيحفظ حاجة */
+let PREVIEW_BACK = null;
+function previewAs(role) {
+  if (!ME || ME.role !== 'admin') return;
+  PREVIEW_BACK = ME;
+  ME = { uid: '__preview__', name: 'معاينة — ' + (ROLE_T[role] || role), phone: '', role, gov: '', centers: '*', active: true, preview: true };
+  CUR.tab = 'home'; CUR.providerTab = 'new';
+  render();
+  toast('👁️ وضع معاينة كـ ' + (ROLE_T[role] || role) + ' — دوس «رجوع للوحة» للخروج');
+}
+function exitPreview() {
+  if (!ME || !ME.preview) return;
+  ME = PREVIEW_BACK || Object.values(USERS).find(x => x.role === 'admin');
+  PREVIEW_BACK = null;
+  CUR.tab = 'home';
+  render();
+}
+/* وضع المعاينة للعرض بس — منع الحفظ والرفع */
+function noPreview() {
+  if (ME && ME.preview) { toast('👁️ ده وضع معاينة للعرض بس — مش بيحفظ', 'err'); return true; }
+  return false;
 }
 function toggleUser(uid2) {
   const u = USERS[uid2];
@@ -995,6 +1096,10 @@ $('#install-x').onclick = () => {
 if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !localStorage.getItem('raia_install_hide') && !navigator.standalone) {
   setTimeout(() => { $('#install-banner').hidden = false; $('#install-banner .txt').innerHTML = '<b>📲 ثبّت «رعايتك» كتطبيق</b><br>من زرار المشاركة ↑ اختار «إضافة للشاشة الرئيسية»'; }, 2500);
 }
+// التوقيع يرتفع فوق بانر التثبيت لما يظهر
+new MutationObserver(() => {
+  document.body.classList.toggle('has-install-banner', !$('#install-banner').hidden);
+}).observe($('#install-banner'), { attributes: true });
 
 /* ============================================================
    التشغيل
