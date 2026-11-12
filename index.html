@@ -169,7 +169,8 @@ textarea.inp{resize:vertical;min-height:88px}
 #install-banner .txt b{font-size:.9rem}
 
 /* التوقيع */
-.sig{position:fixed;bottom:4px;left:8px;z-index:60;font-size:.6rem;font-weight:800;color:rgba(147,164,192,.55);letter-spacing:.5px;direction:ltr;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.sig{position:fixed;bottom:4px;left:8px;z-index:60;font-size:.6rem;font-weight:800;color:rgba(147,164,192,.55);letter-spacing:.5px;direction:ltr;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,.6);transition:bottom .3s}
+body.has-install-banner .sig{bottom:calc(84px + env(safe-area-inset-bottom))}
 
 .empty{text-align:center;padding:34px 12px;color:var(--muted)}
 .empty .ic{font-size:2.6rem;display:block;margin-bottom:10px;opacity:.6}
@@ -224,7 +225,7 @@ textarea.inp{resize:vertical;min-height:88px}
 
 <script>
 (function () {
-  var V = 'raia-2026-11-11';
+  var V = 'raia-2026-11-12';
   window.APP_VERSION = V;
   function nukedReload() {
     if (window.__nuking) return; window.__nuking = true;
@@ -261,7 +262,7 @@ textarea.inp{resize:vertical;min-height:88px}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="app.js?v=raia-2026-11-11"></script>
+<script src="app.js?v=raia-2026-11-12"></script>
 <script src="https://m-tayea.mtayea.com/signature/mtayea-signature.js"></script>
 </body>
 </html>
