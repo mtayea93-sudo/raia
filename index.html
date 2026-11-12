@@ -186,7 +186,9 @@ body.has-install-banner .sig{bottom:calc(84px + env(safe-area-inset-bottom))}
 .wa-btn{background:rgba(61,220,132,.13);border:1px solid rgba(61,220,132,.4);color:var(--green)}
 @media (max-width:380px){.pick{grid-template-columns:1fr 1fr}}
 @media (max-width:400px){.brand small{display:none}.brand{font-size:1rem}.brand img{width:30px;height:30px}.topbar-in{gap:6px;padding:10px 10px}}
+.leaflet-container{background:#0d1a2e;border-radius:12px;z-index:1}
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
 <body>
 <div id="bgfx"></div>
@@ -228,7 +230,7 @@ body.has-install-banner .sig{bottom:calc(84px + env(safe-area-inset-bottom))}
 
 <script>
 (function () {
-  var V = 'raia-2026-11-12';
+  var V = 'raia-2026-11-13';
   window.APP_VERSION = V;
   function nukedReload() {
     if (window.__nuking) return; window.__nuking = true;
@@ -265,7 +267,8 @@ body.has-install-banner .sig{bottom:calc(84px + env(safe-area-inset-bottom))}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="app.js?v=raia-2026-11-12"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js?v=raia-2026-11-13"></script>
 <script src="https://m-tayea.mtayea.com/signature/mtayea-signature.js"></script>
 </body>
 </html>
