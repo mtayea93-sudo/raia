@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.mtayea.raia.twa",
+        "sha256_cert_fingerprints": ["5B:92:17:CC:52:4D:8D:8D:80:61:F2:F8:1F:E7:14:24:D1:3A:F3:ED:0F:D7:D8:56:CD:AF:8F:D4:19:9C:29:8B"]
+      }
+    }]
