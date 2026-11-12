@@ -599,9 +599,7 @@ function renderCaseFile() {
 
   let html = `
   <div style="display:flex;gap:8px;margin-bottom:2px">
-    <button class="btn btn-o btn-sm" onclick="go('cases')">⬅ رجوع</button>
-    <button class="btn btn-o btn-sm" onclick="go('home')">🏠 الرئيسية</button>
-    <button class="btn btn-d btn-sm" style="margin-inline-start:auto" onclick="if(confirm('هتسجل خروج؟'))logout()">⏻ خروج</button>
+    <button class="btn btn-o btn-sm" onclick="go('cases')">⬅ رجوع للحالات</button>
   </div>
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -878,10 +876,7 @@ function renderMe() {
     <h3>🔐 الأمان</h3>
     <button class="btn btn-o btn-block" onclick="changePassModal()">تغيير كلمة المرور</button>
   </div>
-  <div style="display:flex;gap:8px;margin-top:16px">
-    <button class="btn btn-o" style="flex:1" onclick="go('home')">🏠 الرئيسية</button>
-    <button class="btn btn-d" style="flex:1" onclick="if(confirm('هتسجل خروج؟'))logout()">⏻ تسجيل الخروج</button>
-  </div>
+  <button class="btn btn-d btn-block" style="margin-top:16px" onclick="if(confirm('هتسجل خروج؟'))logout()">⏻ تسجيل الخروج</button>
   <p style="text-align:center;margin-top:14px;font-size:.66rem;color:var(--muted)">رعايتك · الإصدار ${APP_VERSION}</p>`;
 }
 
@@ -1105,6 +1100,11 @@ new MutationObserver(() => {
    التشغيل
    ============================================================ */
 $('#bell-btn').onclick = () => go('notifs');
+$('#home-btn').onclick = () => go('home');
+$('#logout-btn').onclick = () => {
+  if (ME && ME.preview) { exitPreview(); return; }
+  if (confirm('هتسجل خروج؟')) logout();
+};
 $('#me-chip').onclick = () => go('me');
 $$('#bottomnav button').forEach(b => b.onclick = () => go(b.dataset.nav));
 
