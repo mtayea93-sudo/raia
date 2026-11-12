@@ -5,7 +5,7 @@
    ============================================================ */
 'use strict';
 
-const APP_VERSION = 'raia-2026-11-12';
+const APP_VERSION = 'raia-2026-11-13';
 const OWNER_PHONE = '01060651837'; // رقم المالك — يقدر يسجل بأي دور وبأكتر من حساب
 const PHONE_RE = /^01[0-9]{9}$/;
 const EMAIL_SUF = '@raia.app';
@@ -124,8 +124,9 @@ let ME = null;            // المستخدم الحالي {uid,name,phone,role,
 let USERS = LSget('raia_users', {});    // uid -> user
 let CASES = LSget('raia_cases', {});    // id -> case
 let NOTIFS = LSget('raia_notifs', {});  // id -> notif (بتاعتي بس)
-let SETTINGS = LSget('raia_settings', { instaQr: '', adminHash: null, adminSalt: null, payEnabled: false });
-let SUBS = { cases: {}, vitals: {}, files: {}, rx: {} };   // بيانات فرعية محمّلة للحالة المفتوحة
+let SETTINGS = LSget('raia_settings', { instaQr: '', adminHash: null, adminSalt: null, payEnabled: false, theme: null, logo: '' });
+const DEFAULT_THEME = { teal: '#14c8b2', teal2: '#0da595', gold: '#e8b84b', bg: '#0a1424' };
+let SUBS = { cases: {}, vitals: {}, files: {}, rx: {}, notes: {} };   // بيانات فرعية محمّلة للحالة المفتوحة
 let CLOUD = { ready: false, online: false };
 let CUR = { case: null, tab: 'home', providerTab: 'new' };
 
@@ -134,6 +135,20 @@ function persistLocal() {
   LSset('raia_cases', CASES);
   LSset('raia_notifs', NOTIFS);
   LSset('raia_settings', SETTINGS);
+}
+
+/* ---------- ثيم الموقع: ألوان + لوجو من لوحة التحكم ---------- */
+function applyTheme() {
+  const t = Object.assign({}, DEFAULT_THEME, SETTINGS.theme || {});
+  const r = document.documentElement.style;
+  r.setProperty('--teal', t.teal);
+  r.setProperty('--teal2', t.teal2);
+  r.setProperty('--gold', t.gold);
+  r.setProperty('--bg', t.bg);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = t.bg;
+  const logos = document.querySelectorAll('.auth-logo, .brand img, #install-banner img');
+  logos.forEach(im => { im.src = SETTINGS.logo || 'icon-192.png'; });
 }
 
 /* ---------- طبقة السحابة ---------- */
@@ -170,7 +185,7 @@ function pushNotif(toUid, n) {
 }
 function pushSettings() {
   if (!CLOUD.ready) return;
-  cloudSchedule(() => dbRef('settings').set({ instaQr: SETTINGS.instaQr, adminHash: SETTINGS.adminHash, adminSalt: SETTINGS.adminSalt, payEnabled: !!SETTINGS.payEnabled }));
+  cloudSchedule(() => dbRef('settings').set({ instaQr: SETTINGS.instaQr, adminHash: SETTINGS.adminHash, adminSalt: SETTINGS.adminSalt, payEnabled: !!SETTINGS.payEnabled, theme: SETTINGS.theme || null, logo: SETTINGS.logo || '' }));
 }
 function pushSub(kind, caseId, id, val) {
   if (!CLOUD.ready) return;
@@ -209,8 +224,11 @@ function attachCloud() {
     if (v && typeof v === 'object') {
       if (v.instaQr !== undefined) SETTINGS.instaQr = v.instaQr;
       if (v.payEnabled !== undefined) SETTINGS.payEnabled = v.payEnabled;
+      if (v.theme !== undefined) SETTINGS.theme = v.theme;
+      if (v.logo !== undefined) SETTINGS.logo = v.logo || '';
       if (v.adminHash) { SETTINGS.adminHash = v.adminHash; SETTINGS.adminSalt = v.adminSalt; }
       persistLocal();
+      applyTheme();
     }
   });
   dbRef('cases').on('value', s => {
@@ -230,10 +248,18 @@ function attachMyNotifs() {
   if (!CLOUD.ready || !ME || ME._notifAttached) return;
   ME._notifAttached = true;
   dbRef('unotifs/' + ME.uid).on('value', s => {
+    const prev = NOTIFS || {};
     NOTIFS = s.val() || {};
     persistLocal();
     updateBell();
     if (CUR.tab === 'notifs') render();
+    // إشعار فوري عند وصول إشعار جديد غير مقروء
+    const fresh = Object.values(NOTIFS).filter(n => !n.read && !prev[n.id]);
+    if (window.__notifBooted && fresh.length) {
+      fresh.slice(0, 3).forEach(n => toast('🔔 ' + (n.title || 'إشعار جديد')));
+      if ('vibrate' in navigator) try { navigator.vibrate(80); } catch (e) {}
+    }
+    window.__notifBooted = true;
   });
 }
 
@@ -477,7 +503,7 @@ function caseCard(c) {
       <b style="font-size:.95rem">${svc.ic} ${svc.name}</b>
       <span class="st ${s.cls}">${s.t}</span>
     </div>
-    <div class="meta">${other}<br>📍 ${esc(c.gov)} — ${esc(c.center)}${c.landmark ? ' — علامة: ' + esc(c.landmark) : ''}<br>💳 ${c.pay === 'insta' ? 'إنستا باي' : 'كاش'} · 🕐 ${ago(c.createdAt)}</div>
+    <div class="meta">${other}${c.age ? ' · 🎂 ' + c.age + ' سنة' : ''}<br>📍 ${esc(c.gov)} — ${esc(c.center)}${c.landmark ? ' — علامة: ' + esc(c.landmark) : ''}<br>💳 ${c.pay === 'insta' ? 'إنستا باي' : 'كاش'} · 🕐 ${ago(c.createdAt)}</div>
   </div>`;
 }
 
@@ -497,6 +523,10 @@ function renderNewCase() {
       </div>
     </div>
     <div class="field"><label>اسم المريض</label><input class="inp" id="nc-name" value="${esc(ME.name)}"></div>
+    <div class="grid2">
+      <div class="field"><label>السن</label><input class="inp" id="nc-age" inputmode="numeric" maxlength="3" placeholder="مثال: 45"></div>
+      <div class="field"><label>النوع</label><select class="inp" id="nc-gender"><option value="">اختر...</option><option value="male">ذكر</option><option value="female">أنثى</option></select></div>
+    </div>
     <div class="field"><label>وصف مختصر للحالة</label><textarea class="inp" id="nc-desc" placeholder="مثال: مريض سكر محتاج متابعة ضغط وسكر، أو سحب عينة صايم الصبح..."></textarea></div>
     <div class="grid2">
       <div class="field"><label>المحافظة</label><select class="inp" id="nc-gov">${GOVS.map(g => `<option ${ME.gov === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
@@ -504,6 +534,11 @@ function renderNewCase() {
     </div>
     <div class="field"><label>الشارع ورقم العقار بالتفصيل</label><input class="inp" id="nc-street" placeholder="مثال: شارع المستشفى — عقار 12 — الدور 2"></div>
     <div class="field"><label>علامة مميزة قريبة (مهمة جدًا للوصول)</label><input class="inp" id="nc-mark" placeholder="مثال: جنب مسجد النور / محل الأمانة"></div>
+    <div class="field"><label>📍 الموقع على الخريطة — اضغط على الخريطة لتحديد موقع العنوان</label>
+      <div id="nc-map" style="height:220px;border-radius:14px;border:1px solid var(--stroke);z-index:1"></div>
+      <div class="hint" id="nc-map-hint">اختياري — بس بيسهّل على فريق الرعاية إنه يلاقيك أسرع</div>
+    </div>
+    <div class="field"><label>ملاحظات وطلبات الحالة (اختياري)</label><textarea class="inp" id="nc-notes" placeholder="أي طلبات أو تعليمات خاصة بالحالة — مثال: المريض بياخد أدوية ضغط، يفضل الحضور قبل الظهر..."></textarea></div>
     <div class="grid2">
       <div class="field"><label>تليفون بديل (اختياري)</label><input class="inp" id="nc-phone2" inputmode="numeric" maxlength="11" placeholder="01xxxxxxxxx"></div>
       <div class="field"><label>&nbsp;</label><label class="payrow" style="margin-top:0"><input type="checkbox" id="nc-wa" checked><span>💬 الرقم متاح عليه واتساب</span></label></div>
@@ -515,6 +550,7 @@ function renderNewCase() {
     </div>` : ''}
     <button class="btn btn-p btn-block" id="nc-btn" onclick="submitCase()">إرسال الطلب 🚀</button>
   </div>`;
+  setTimeout(initCaseMap, 50);
 }
 
 async function submitCase() {
@@ -533,6 +569,11 @@ async function submitCase() {
     const p2 = $('#nc-phone2').value.trim();
     if (p2 && !PHONE_RE.test(p2)) throw new Error('التليفون البديل مش صحيح');
     const wa = $('#nc-wa').checked;
+    const age = +($('#nc-age') ? $('#nc-age').value.trim() : '') || 0;
+    if (age && (age < 0 || age > 120)) throw new Error('السن لازم يكون بين ٠ و ١٢٠');
+    const gender = $('#nc-gender') ? $('#nc-gender').value : '';
+    if (!gender) throw new Error('اختر النوع');
+    const notesTxt = $('#nc-notes') ? $('#nc-notes').value.trim() : '';
     const pay = SETTINGS.payEnabled && document.querySelector('input[name=nc-pay]:checked') ? document.querySelector('input[name=nc-pay]:checked').value : 'cash';
     const c = {
       id: uid(), patientUid: ME.uid, patientName: name, patientPhone: ME.phone,
@@ -540,10 +581,17 @@ async function submitCase() {
       desc: $('#nc-desc').value.trim(),
       gov, center, street, landmark: mark,
       phone2: p2, whatsapp: wa, pay, paySent: false,
+      age, gender,
+      lat: caseLoc ? caseLoc.lat : null, lng: caseLoc ? caseLoc.lng : null,
       status: 'new', providerUid: null, providerName: '',
       createdAt: Date.now(), updatedAt: Date.now()
     };
     CASES[c.id] = c;
+    if (notesTxt) {
+      const n0 = { id: uid(), text: notesTxt, by: ME.name || 'المريض', role: ME.role, at: Date.now() };
+      c._notes = { [n0.id]: n0 };
+      if (CLOUD.ready) pushSub('notes', c.id, n0.id, n0);
+    }
     ME.gov = gov; if (!$('#nc-center').disabled) { ME.centers = center; pushUser(ME); }
     persistLocal();
     pushCase(c);
@@ -565,7 +613,7 @@ async function submitCase() {
   btn.disabled = false;
 }
 function markPaid(id) { if (CASES[id]) { CASES[id].paySent = true; CASES[id].updatedAt = Date.now(); pushCase(CASES[id]); persistLocal(); } closeModal(); finishNewCase(id); }
-function finishNewCase(id) { CUR.tab = 'case'; CUR.case = id; render(); }
+function finishNewCase(id) { caseLoc = null; CUR.tab = 'case'; CUR.case = id; render(); }
 
 /* ============================================================
    ملف الحالة (ملف المريض الخاص)
@@ -574,7 +622,7 @@ function openCase(id) { CUR.case = id; CUR.tab = 'case'; ensureSubs(id); render(
 
 function ensureSubs(id) {
   if (!CLOUD.ready) return;
-  ['vitals', 'files', 'rx'].forEach(kind => {
+  ['vitals', 'files', 'rx', 'notes'].forEach(kind => {
     if (SUBS[kind][id]) return;
     SUBS[kind][id] = true;
     dbRef(kind + '/' + id).on('value', s => {
@@ -595,7 +643,9 @@ function renderCaseFile() {
   const vitals = Object.values(c._vitals || {}).sort((a, b) => b.at - a.at);
   const files = Object.values(c._files || {}).sort((a, b) => b.at - a.at);
   const rxs = Object.values(c._rx || {}).sort((a, b) => b.at - a.at);
+  const notes = Object.values(c._notes || {}).sort((a, b) => b.at - a.at);
   const lastV = vitals[0];
+  const canEdit = ME.role !== 'patient';
 
   let html = `
   <div style="display:flex;gap:8px;margin-bottom:2px">
@@ -607,18 +657,22 @@ function renderCaseFile() {
       <span class="st ${s.cls}">${s.t}</span>
     </div>
     <div class="meta" style="margin-top:10px">
-      المريض: <b>${esc(c.patientName)}</b><br>
+      المريض: <b>${esc(c.patientName)}</b>${c.age ? ' · 🎂 ' + c.age + ' سنة' : ''}${c.gender ? ' · ' + (c.gender === 'male' ? '👨 ذكر' : '👩 أنثى') : ''}<br>
       📍 ${esc(c.gov)} — ${esc(c.center)}<br>${esc(c.street)}<br>🚩 علامة مميزة: <b>${esc(c.landmark)}</b><br>
       📞 ${esc(c.patientPhone)}${c.phone2 ? ' / ' + esc(c.phone2) : ''} ${c.whatsapp ? '· <a href="https://wa.me/2' + c.patientPhone.slice(1) + '" target="_blank" style="color:var(--green)">واتساب 💬</a>' : ''}<br>
       💳 ${c.pay === 'insta' ? 'إنستا باي' + (c.paySent ? ' (تم التحويل ✅)' : ' (لسه)') : 'كاش عند الزيارة'} · 🕐 ${fmtDT(c.createdAt)}
       ${c.desc ? '<br>📝 ' + esc(c.desc) : ''}
       ${c.providerName ? '<br>👨‍⚕️ المكلف: <b>' + esc(c.providerName) + '</b>' : ''}
+      ${c.requestedByName ? '<br>🤲 طلب من: <b>' + esc(c.requestedByName) + '</b>' : ''}
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
       ${isProvider && c.status === 'new' ? `<button class="btn btn-p btn-sm" onclick="acceptCase('${c.id}')">🙋 استلم الحالة</button>` : ''}
       ${isProvider && c.status === 'assigned' ? `<button class="btn btn-g btn-sm" onclick="setStatus('${c.id}','way')">🚗 بدأت الطريق</button><button class="btn btn-p btn-sm" onclick="setStatus('${c.id}','done')">✅ تمت الخدمة</button>` : ''}
       ${isProvider && c.status === 'way' ? `<button class="btn btn-p btn-sm" onclick="setStatus('${c.id}','done')">✅ تمت الخدمة</button>` : ''}
       ${c.status !== 'done' ? `<a class="btn btn-o btn-sm" href="tel:${esc(c.patientPhone)}">📞 اتصال</a>` : ''}
+      ${c.status !== 'done' && c.whatsapp ? `<a class="btn btn-o btn-sm" href="https://wa.me/2${c.patientPhone.slice(1)}" target="_blank">💬 واتساب</a>` : ''}
+      ${c.lat && c.lng ? `<a class="btn btn-o btn-sm" href="https://www.google.com/maps?q=${c.lat},${c.lng}" target="_blank">🗺️ الخريطة</a>` : ''}
+      ${canEdit && c.status !== 'done' && c.type !== 'nurse' ? `<button class="btn btn-g btn-sm" onclick="requestNurseModal('${c.id}')">🤲 طلب تمريض</button>` : ''}
       ${isPatient && c.status === 'new' ? `<button class="btn btn-d btn-sm" onclick="cancelCase('${c.id}')">إلغاء الطلب</button>` : ''}
     </div>
   </div>
@@ -632,18 +686,37 @@ function renderCaseFile() {
       ${lastV.temp ? `<div class="vital"><div class="vv">${esc(lastV.temp)}°</div><div class="vl">حرارة</div></div>` : ''}
       ${lastV.spo2 ? `<div class="vital"><div class="vv">${esc(lastV.spo2)}%</div><div class="vl">أكسجين</div></div>` : ''}
     </div>` : '<div class="empty" style="padding:16px"><span class="ic">🩺</span>لسه مفيش قياسات</div>'}
-    ${vitals.length > 1 ? vitals.slice(1, 6).map(v => `<div class="vrow"><span>${v.sugar ? 'سكر ' + esc(v.sugar) + ' · ' : ''}${v.sys ? 'ضغط ' + esc(v.sys) + '/' + esc(v.dia || '') + ' · ' : ''}${v.pulse ? 'نبض ' + esc(v.pulse) : ''}</span><time>${fmtDT(v.at)}</time></div>`).join('') : ''}
+    ${vitalsTableHtml(vitals.slice(0, 6))}
     ${vitals.length > 6 ? `<div style="text-align:center;margin-top:8px"><span onclick="showAllVitals('${c.id}')" style="font-size:.75rem;color:var(--teal);cursor:pointer">عرض كل القياسات (${vitals.length})</span></div>` : ''}
-    <button class="btn btn-o btn-block" style="margin-top:12px" onclick="addVitalModal('${c.id}')">➕ تسجيل قياس جديد</button>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      ${vitals.length ? `<button class="btn btn-o btn-sm" onclick="casePdf('${c.id}','vitals')">📄 تحميل PDF للعلامات</button>` : ''}
+      ${canEdit ? `<button class="btn btn-o btn-sm" onclick="addVitalModal('${c.id}')">➕ تسجيل قياس جديد</button>` : `<span style="font-size:.72rem;color:var(--muted);align-self:center">🔒 المعاينة فقط — التسجيل للطبيب والتمريض والمعمل</span>`}
+    </div>
   </div>
 
   <div class="card">
     <h3>🧪 التحاليل والأشعة (صور)</h3>
     <div class="files">
       ${files.map(f => `<img src="${f.data}" alt="${esc(f.name)}" onclick="viewImg('${f.id}')">`).join('')}
-      <label class="fadd" title="رفع صور التحاليل — اضغط واختر صورة أو أكتر">＋<input type="file" accept="image/*" multiple hidden onchange="uploadFile('${c.id}', this)"></label>
+      ${canEdit ? `<label class="fadd" title="رفع صور التحاليل — اضغط واختر صورة أو أكتر">＋<input type="file" accept="image/*" multiple hidden onchange="uploadFile('${c.id}', this)"></label>` : ''}
     </div>
-    ${files.length ? `<p class="hint">اضغط على أي صورة لتكبيرها — تقدر ترفع أي عدد صور</p>` : '<p class="hint">ارفع صور التحاليل (أي صيغة وأي عدد) — بتتضغط وتتخزن في ملف المريض الخاص</p>'}
+    ${files.length ? `<p class="hint">اضغط على أي صورة لتكبيرها</p>` : `<p class="hint">${canEdit ? 'ارفع صور التحاليل (أي صيغة وأي عدد) — بتتضغط وتتخزن في ملف المريض الخاص' : 'لسه مفيش تحاليل مرفوعة'}</p>`}
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      ${files.length ? `<button class="btn btn-o btn-sm" onclick="casePdf('${c.id}','files')">📄 تحميل PDF للتحاليل</button>` : ''}
+      ${!canEdit ? `<span style="font-size:.72rem;color:var(--muted);align-self:center">🔒 رفع التحاليل للطبيب والتمريض والمعمل بس</span>` : ''}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>📌 ملاحظات وطلبات الحالة</h3>
+    ${notes.length ? notes.map(n => `<div class="vrow" style="align-items:flex-start;flex-direction:column;gap:4px">
+      <span style="font-weight:600">${esc(n.text)}</span>
+      <time>${esc(n.by || '')} — ${fmtDT(n.at)}</time>
+    </div>`).join('') : '<div class="empty" style="padding:16px"><span class="ic">📌</span>لسه مفيش ملاحظات</div>'}
+    ${canEdit ? `<div style="display:flex;gap:8px;margin-top:10px">
+      <input class="inp" id="note-inp" placeholder="اكتب طلب أو ملاحظة للحالة..." style="flex:1">
+      <button class="btn btn-p" onclick="addCaseNote('${c.id}')">إضافة</button>
+    </div>` : `<p class="hint">🔒 المريض بيعرض الملاحظات فقط — الإضافة للفريق الطبي</p>`}
   </div>
 
   <div class="card">
@@ -661,7 +734,7 @@ function renderCaseFile() {
 function showAllVitals(id) {
   const c = CASES[id];
   const vitals = Object.values(c._vitals || {}).sort((a, b) => b.at - a.at);
-  openModal(`<h3>📋 كل القياسات (${vitals.length})</h3>${vitals.map(v => `<div class="vrow"><span>${[v.sugar && 'سكر ' + v.sugar, v.sys && 'ضغط ' + v.sys + '/' + (v.dia || '-'), v.pulse && 'نبض ' + v.pulse, v.temp && 'حرارة ' + v.temp, v.spo2 && 'أكسجين ' + v.spo2 + '%'].filter(Boolean).join(' · ')}</span><time>${fmtDT(v.at)}</time></div>`).join('')}<button class="btn btn-o btn-block" style="margin-top:12px" onclick="closeModal()">قفل</button>`);
+  openModal(`<h3>📋 كل القياسات (${vitals.length})</h3>${vitalsTableHtml(vitals)}<button class="btn btn-o btn-block" style="margin-top:12px" onclick="closeModal()">قفل</button>`);
 }
 
 function addVitalModal(id) {
@@ -680,6 +753,7 @@ function addVitalModal(id) {
 }
 async function saveVital(id) {
   if (noPreview()) return;
+  if (ME.role === 'patient') { toast('🔒 المريض يعاين بس — التسجيل للطبيب والتمريض والمعمل', 'err'); return; }
   const g = x => ($('#v-' + x) || {}).value;
   const atEl = $('#v-at').value;
   const at = atEl ? new Date(atEl).getTime() : Date.now();
@@ -696,6 +770,7 @@ async function saveVital(id) {
 
 async function uploadFile(id, inp) {
   if (noPreview()) { inp.value = ''; return; }
+  if (ME.role === 'patient') { toast('🔒 المريض يعاين بس — الرفع للطبيب والتمريض والمعمل', 'err'); inp.value = ''; return; }
   const list = Array.from(inp.files || []);
   if (!list.length) return;
   toast(list.length > 1 ? `⏳ جاري رفع ${list.length} صور...` : '⏳ جاري رفع الصورة...');
@@ -747,6 +822,152 @@ function viewImg(fid) {
 }
 function viewImgSrc(src, name) {
   openModal(`<h3>${esc(name || 'صورة')}</h3><img src="${src}" style="width:100%;border-radius:14px"><button class="btn btn-o btn-block" style="margin-top:12px" onclick="closeModal()">قفل</button>`);
+}
+
+/* ---------- ١: جدول مقارنة العلامات الحيوية (مقارنة كل قياس باللي قبله) ---------- */
+function vitalsTableHtml(vitals) {
+  if (!vitals.length) return '';
+  const cell = (v, older, key, combo) => {
+    let val = '';
+    if (combo) val = v.sys ? esc(v.sys) + '/' + esc(v.dia || '—') : '';
+    else val = v[key] !== undefined && v[key] !== null && v[key] !== '' ? esc(v[key]) : '';
+    if (!val) return '<td style="color:var(--muted)">—</td>';
+    let badge = '';
+    if (older) {
+      const cur = combo ? parseFloat(v.sys) : parseFloat(v[key]);
+      const prev = combo ? parseFloat(older.sys) : parseFloat(older[key]);
+      if (!isNaN(cur) && !isNaN(prev)) {
+        const d = cur - prev;
+        if (d !== 0) badge = ` <small style="font-weight:800;color:${d > 0 ? 'var(--red)' : 'var(--green)'}">${d > 0 ? '↑' : '↓'}${Math.abs(d)}</small>`;
+      }
+    }
+    return `<td>${val}${badge}</td>`;
+  };
+  const rows = vitals.map((v, i) => {
+    const older = vitals[i + 1];
+    return `<tr>
+      <td style="white-space:nowrap;font-size:.72rem">${fmtDT(v.at)}</td>
+      ${cell(v, older, 'sugar')}
+      ${cell(v, older, null, true)}
+      ${cell(v, older, 'pulse')}
+      ${cell(v, older, 'temp')}
+      ${cell(v, older, 'spo2')}
+      <td style="font-size:.7rem;color:var(--muted)">${esc(v.byName || '—')}</td>
+    </tr>`;
+  }).join('');
+  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.82rem">
+    <thead><tr style="color:var(--muted);font-size:.7rem">
+      <th style="text-align:right;padding:6px 4px;border-bottom:1px solid var(--stroke)">التاريخ</th>
+      <th style="padding:6px 4px;border-bottom:1px solid var(--stroke)">السكر</th>
+      <th style="padding:6px 4px;border-bottom:1px solid var(--stroke)">الضغط</th>
+      <th style="padding:6px 4px;border-bottom:1px solid var(--stroke)">النبض</th>
+      <th style="padding:6px 4px;border-bottom:1px solid var(--stroke)">الحرارة</th>
+      <th style="padding:6px 4px;border-bottom:1px solid var(--stroke)">الأكسجين</th>
+      <th style="padding:6px 4px;border-bottom:1px solid var(--stroke)">سجّله</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="hint">↑ زيادة · ↓ نقصان عن القياس اللي قبله — جدول متابعة المريض</p>`;
+}
+
+/* ---------- ٣: تحميل PDF (جدول القياسات أو صور التحاليل) ---------- */
+function casePdf(id, kind) {
+  const c = CASES[id];
+  if (!c) return;
+  const w = window.open('', '_blank');
+  if (!w) { toast('⚠️ اسمح بالنوافذ المنبثقة من المتصفح عشان تحمّل الـ PDF', 'err'); return; }
+  const head = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>رعايتك — ${kind === 'vitals' ? 'جدول العلامات الحيوية' : 'التحاليل'} — ${esc(c.patientName)}</title>
+  <style>body{font-family:'Cairo',Tahoma,sans-serif;padding:24px;color:#111}h1{font-size:1.3rem;margin-bottom:4px}p.sub{color:#555;font-size:.85rem;margin-bottom:18px}table{width:100%;border-collapse:collapse;font-size:.85rem}th,td{border:1px solid #999;padding:8px;text-align:center}th{background:#eee}img{max-width:100%;border:1px solid #ccc;border-radius:8px;margin-bottom:6px}.imgbox{page-break-inside:avoid;margin-bottom:16px}.imgbox p{font-size:.75rem;color:#555}</style></head><body>
+  <h1>رعايتك — ${kind === 'vitals' ? '❤️ جدول العلامات الحيوية' : '🧪 صور التحاليل والأشعة'}</h1>
+  <p class="sub">المريض: <b>${esc(c.patientName)}</b>${c.age ? ' — ' + esc(c.age) + ' سنة' : ''}${c.gender ? ' — ' + esc(c.gender) : ''} · طبع في ${fmtDT(Date.now())}</p>`;
+  let body = '';
+  if (kind === 'vitals') {
+    const vitals = Object.values(c._vitals || {}).sort((a, b) => b.at - a.at);
+    body = vitals.length ? `<table><thead><tr><th>التاريخ</th><th>السكر</th><th>الضغط</th><th>النبض</th><th>الحرارة</th><th>الأكسجين</th><th>سجّله</th></tr></thead><tbody>` +
+      vitals.map(v => `<tr><td>${fmtDT(v.at)}</td><td>${esc(v.sugar || '—')}</td><td>${v.sys ? esc(v.sys) + '/' + esc(v.dia || '—') : '—'}</td><td>${esc(v.pulse || '—')}</td><td>${esc(v.temp || '—')}</td><td>${esc(v.spo2 || '—')}</td><td>${esc(v.byName || '—')}</td></tr>`).join('') +
+      '</tbody></table>' : '<p>مفيش قياسات مسجلة</p>';
+  } else {
+    const files = Object.values(c._files || {}).sort((a, b) => b.at - a.at);
+    body = files.length ? files.map(f => `<div class="imgbox"><img src="${f.data}"><p>${esc(f.name)} — ${fmtDT(f.at)}${f.byName ? ' — ' + esc(f.byName) : ''}</p></div>`).join('') : '<p>مفيش تحاليل مرفوعة</p>';
+  }
+  w.document.write(head + body + `<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`);
+  w.document.close();
+}
+
+/* ---------- ٢: نافذة الطبيب لطلب تمريض مع شرح الحالة ---------- */
+function requestNurseModal(id) {
+  const c = CASES[id];
+  if (!c) return;
+  const nurses = Object.values(USERS).filter(u => u.role === 'nurse' && u.active !== false);
+  openModal(`<h3>🤲 طلب تمريض للحالة</h3>
+    <p class="hint" style="margin-bottom:12px">هيتم إنشاء طلب تمريض جديد مرتبط بالحالة دي — المريض والتمريض هيستلموا إشعار فورًا.</p>
+    <div class="field"><label>إرسال إلى</label>
+      <select class="inp" id="nr-nurse">
+        <option value="">أي تمريض في نطاق الحالة (${esc(c.gov)} — ${esc(c.center)})</option>
+        ${nurses.map(n => `<option value="${n.uid}">${esc(n.name)} — ${esc(n.gov || 'كل المحافظات')}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>شرح الحالة والمطلوب من التمريض</label>
+      <textarea class="inp" id="nr-desc" placeholder="مثال: مريض سكر محتاج قياس سكر قبل الأكل + حقنة أنسولين صايم..."></textarea></div>
+    <button class="btn btn-p btn-block" onclick="sendNurseRequest('${c.id}')">🚀 إرسال طلب التمريض</button>
+    <button class="btn btn-o btn-block" style="margin-top:8px" onclick="closeModal()">إلغاء</button>`);
+}
+function sendNurseRequest(id) {
+  if (noPreview()) return;
+  const c = CASES[id];
+  if (!c) return;
+  const desc = $('#nr-desc').value.trim();
+  if (!desc) { toast('اكتب شرح الحالة والمطلوب الأول', 'err'); return; }
+  const target = $('#nr-nurse').value;
+  const nc = {
+    id: uid(), patientUid: c.patientUid, patientName: c.patientName, patientPhone: c.patientPhone,
+    type: 'nurse', desc, refCaseId: c.id, requestedBy: ME.uid, requestedByName: ME.name,
+    gov: c.gov, center: c.center, street: c.street, landmark: c.landmark,
+    phone2: c.phone2 || '', whatsapp: c.whatsapp !== false, age: c.age || '', gender: c.gender || '',
+    pay: 'cash', paySent: false, status: 'new', providerUid: null, providerName: '',
+    createdAt: Date.now(), updatedAt: Date.now()
+  };
+  CASES[nc.id] = nc; persistLocal(); pushCase(nc);
+  const nurses = target ? [USERS[target]].filter(Boolean)
+    : Object.values(USERS).filter(u => u.role === 'nurse' && u.active !== false && (!u.gov || u.gov === c.gov) && (!u.centers || u.centers.trim() === '*' || u.centers.split(/[،,]/).map(s => s.trim()).some(x => x === c.center || c.center.includes(x))));
+  nurses.forEach(t => pushNotif(t.uid, { id: uid(), caseId: nc.id, read: false, at: Date.now(), title: '🤲 طلب تمريض من الطبيب', body: 'د/ ' + ME.name + ' — ' + c.patientName + ' — ' + desc.slice(0, 60) }));
+  if (c.patientUid !== ME.uid) pushNotif(c.patientUid, { id: uid(), caseId: nc.id, read: false, at: Date.now(), title: '🤲 تم طلب تمريض لحالتك', body: 'د/ ' + ME.name + ' طلب زيارة تمريض مرتبطة بحالتك — هيتواصل معاك قريب' });
+  closeModal(); render();
+  toast('✅ اتبعت طلب التمريض', 'ok');
+}
+
+/* ---------- ٨: ملاحظات وطلبات الحالة ---------- */
+function addCaseNote(id) {
+  if (noPreview()) return;
+  const c = CASES[id];
+  if (!c) return;
+  const text = ($('#note-inp') || {}).value.trim();
+  if (!text) { toast('اكتب الملاحظة الأول', 'err'); return; }
+  const nrec = { id: uid(), text, by: ME.uid, byName: ME.name, at: Date.now() };
+  c._notes = c._notes || {}; c._notes[nrec.id] = nrec;
+  persistLocal(); pushSub('notes', id, nrec.id, nrec);
+  const other = ME.uid === c.patientUid ? c.providerUid : c.patientUid;
+  if (other && other !== ME.uid) pushNotif(other, { id: uid(), caseId: id, read: false, at: Date.now(), title: '📌 ملاحظة جديدة على الحالة', body: c.patientName + ': ' + text.slice(0, 80) });
+  render();
+  toast('✅ اتضافت الملاحظة', 'ok');
+}
+
+/* ---------- ٤: اختيار الموقع على الخريطة (Leaflet + OpenStreetMap) ---------- */
+let caseMap = null, caseMarker = null, caseLoc = null;
+function initCaseMap() {
+  const el = $('#nc-map');
+  if (!el) return;
+  if (!window.L) { setTimeout(initCaseMap, 400); return; }
+  if (caseMap) { caseMap.remove(); caseMap = null; caseMarker = null; }
+  const start = caseLoc || { lat: 31.1333, lng: 31.3 }; // دكرنس كبداية
+  caseMap = L.map('nc-map').setView([start.lat, start.lng], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(caseMap);
+  const setLoc = (ll) => {
+    caseLoc = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) };
+    if (caseMarker) caseMarker.setLatLng(ll);
+    else { caseMarker = L.marker(ll, { draggable: true }).addTo(caseMap); caseMarker.on('dragend', ev => setLoc(ev.target.getLatLng())); }
+    const h = $('#nc-map-hint'); if (h) h.textContent = '✅ تم تحديد الموقع — هيتبعت مع الطلب';
+  };
+  if (caseLoc) caseMarker = L.marker([caseLoc.lat, caseLoc.lng], { draggable: true }).addTo(caseMap).on('dragend', ev => setLoc(ev.target.getLatLng()));
+  caseMap.on('click', e => setLoc(e.latlng));
+  setTimeout(() => { try { caseMap.invalidateSize(); } catch (e) {} }, 150);
 }
 
 /* ============================================================
@@ -979,6 +1200,23 @@ function renderAdminHome() {
     <label class="btn btn-o btn-block" style="margin-top:10px;cursor:pointer">📤 ${SETTINGS.instaQr ? 'تغيير الصورة' : 'رفع صورة QR'}<input type="file" accept="image/*" hidden onchange="uploadInstaQr(this)"></label>
   </div>
   <div class="card">
+    <h3>🎨 ألوان الموقع واللوجو</h3>
+    <p class="hint" style="margin-bottom:10px">غيّر ألوان الموقع وأيقونته — التغيير بيظهر فورًا لكل المستخدمين.</p>
+    <div class="grid2" style="margin-bottom:10px">
+      <div class="field"><label>اللون الأساسي</label><input type="color" id="th-teal" value="${(SETTINGS.theme || {}).teal || DEFAULT_THEME.teal}" style="width:100%;height:42px;border:1px solid var(--stroke);border-radius:10px;background:transparent;padding:4px"></div>
+      <div class="field"><label>اللون التكميلي</label><input type="color" id="th-teal2" value="${(SETTINGS.theme || {}).teal2 || DEFAULT_THEME.teal2}" style="width:100%;height:42px;border:1px solid var(--stroke);border-radius:10px;background:transparent;padding:4px"></div>
+      <div class="field"><label>اللون الذهبي</label><input type="color" id="th-gold" value="${(SETTINGS.theme || {}).gold || DEFAULT_THEME.gold}" style="width:100%;height:42px;border:1px solid var(--stroke);border-radius:10px;background:transparent;padding:4px"></div>
+      <div class="field"><label>لون الخلفية</label><input type="color" id="th-bg" value="${(SETTINGS.theme || {}).bg || DEFAULT_THEME.bg}" style="width:100%;height:42px;border:1px solid var(--stroke);border-radius:10px;background:transparent;padding:4px"></div>
+    </div>
+    <button class="btn btn-p btn-block" onclick="saveTheme()">💾 حفظ الألوان</button>
+    <button class="btn btn-o btn-block" style="margin-top:8px" onclick="resetTheme()">↩️ رجوع للألوان الافتراضية</button>
+    <div style="margin-top:14px;border-top:1px dashed var(--stroke);padding-top:14px">
+      <p class="hint" style="margin-bottom:8px">أيقونة الموقع (اللوجو):</p>
+      ${SETTINGS.logo ? `<img src="${SETTINGS.logo}" style="width:64px;height:64px;border-radius:14px;border:1px solid var(--stroke);display:block;margin-bottom:8px">` : '<p class="hint" style="margin-bottom:8px">لسه مفيش لوجو مرفوع — بيظهر الأصلي</p>'}
+      <label class="btn btn-o btn-block" style="cursor:pointer">📤 ${SETTINGS.logo ? 'تغيير اللوجو' : 'رفع لوجو جديد'}<input type="file" accept="image/*" hidden onchange="uploadLogo(this)"></label>
+    </div>
+  </div>
+  <div class="card">
     <h3>💳 طرق الدفع</h3>
     <p class="hint" style="margin-bottom:10px">حاليًا: <b style="color:${SETTINGS.payEnabled ? 'var(--green)' : 'var(--muted)'}">${SETTINGS.payEnabled ? 'ظاهرة للمرضى' : 'مخفية من فورم الطلب'}</b> — الكاش والإنستا الاتنين بيظهروا QR.</p>
     <button class="btn ${SETTINGS.payEnabled ? 'btn-d' : 'btn-p'} btn-block" onclick="togglePay()">${SETTINGS.payEnabled ? '⏸️ إخفاء طرق الدفع' : '▶️ إظهار طرق الدفع'}</button>
@@ -1025,6 +1263,29 @@ async function uploadInstaQr(inp) {
     render();
     toast('✅ اترفعت صورة الـ QR — هتظهر للمرضى دلوقتي', 'ok');
   } catch (e) { toast('❌ حصل مشكلة في الرفع', 'err'); }
+  inp.value = '';
+}
+function saveTheme() {
+  SETTINGS.theme = {
+    teal: $('#th-teal').value, teal2: $('#th-teal2').value,
+    gold: $('#th-gold').value, bg: $('#th-bg').value
+  };
+  persistLocal(); pushSettings(); applyTheme();
+  toast('✅ اتحفظت الألوان — الموقع اتغير لكل المستخدمين', 'ok');
+}
+function resetTheme() {
+  SETTINGS.theme = null;
+  persistLocal(); pushSettings(); applyTheme(); render();
+  toast('↩️ رجعنا الألوان الافتراضية', 'ok');
+}
+async function uploadLogo(inp) {
+  const f = inp.files && inp.files[0];
+  if (!f) return;
+  try {
+    SETTINGS.logo = await compressImage(f, 512, .85);
+    persistLocal(); pushSettings(); applyTheme(); render();
+    toast('✅ اترفع اللوجو الجديد', 'ok');
+  } catch (e) { toast('❌ حصل مشكلة في رفع اللوجو', 'err'); }
   inp.value = '';
 }
 function togglePay() {
@@ -1110,6 +1371,7 @@ $$('#bottomnav button').forEach(b => b.onclick = () => go(b.dataset.nav));
 
 (function boot() {
   cloudInit();
+  applyTheme();
   const ses = LSget('raia_ses', null);
   if (ses && USERS[ses]) {
     ME = USERS[ses];
