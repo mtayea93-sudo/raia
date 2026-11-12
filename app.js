@@ -5,7 +5,7 @@
    ============================================================ */
 'use strict';
 
-const APP_VERSION = 'raia-2026-11-13';
+const APP_VERSION = 'raia-2026-11-14';
 const OWNER_PHONE = '01060651837'; // رقم المالك — يقدر يسجل بأي دور وبأكتر من حساب
 const PHONE_RE = /^01[0-9]{9}$/;
 const EMAIL_SUF = '@raia.app';
@@ -30,7 +30,7 @@ const STATUS = {
   way:      { t: 'في الطريق', cls: 'st-way' },
   done:     { t: 'تمت', cls: 'st-done' }
 };
-const ROLE_T = { patient: 'مريض', doctor: 'طبيب', nurse: 'تمريض', lab: 'معمل', admin: 'إدارة' };
+const ROLE_T = { patient: 'مريض', doctor: 'طبيب', nurse: 'تمريض', lab: 'معمل', admin: 'إدارة', dispatcher: 'الطلبات' };
 
 /* ---------- أدوات ---------- */
 const $ = s => document.querySelector(s);
@@ -128,7 +128,7 @@ let SETTINGS = LSget('raia_settings', { instaQr: '', adminHash: null, adminSalt:
 const DEFAULT_THEME = { teal: '#14c8b2', teal2: '#0da595', gold: '#e8b84b', bg: '#0a1424' };
 let SUBS = { cases: {}, vitals: {}, files: {}, rx: {}, notes: {} };   // بيانات فرعية محمّلة للحالة المفتوحة
 let CLOUD = { ready: false, online: false };
-let CUR = { case: null, tab: 'home', providerTab: 'new' };
+let CUR = { case: null, tab: 'home', providerTab: 'new', dispatcherTab: 'all' };
 
 function persistLocal() {
   LSset('raia_users', USERS);
@@ -236,7 +236,7 @@ function attachCloud() {
     let mine = false;
     Object.keys(v).forEach(k => {
       const c = v[k];
-      const relevant = ME && (c.patientUid === ME.uid || c.providerUid === ME.uid || ME.role === 'admin');
+      const relevant = ME && (c.patientUid === ME.uid || c.providerUid === ME.uid || ME.role === 'admin' || ME.role === 'dispatcher' || (ME.role === c.type && c.status === 'new'));
       if (relevant || CASES[k]) { CASES[k] = c; if (relevant) mine = true; }
     });
     persistLocal();
@@ -297,7 +297,7 @@ function renderAuth() {
       <div class="field"><label>رقم التليفون</label><input class="inp" id="f-phone" inputmode="numeric" maxlength="11" required placeholder="01xxxxxxxxx">
         <div class="hint">رقم بـ 11 رقم يبدأ بـ 01 — ده هيبقى اسم المستخدم بتاعك</div></div>
       <div class="field"><label>كلمة المرور</label><input class="inp" id="f-pass" type="password" required placeholder="••••••••" minlength="6">
-        <div class="hint">6 حروف أو أرقام على الأقل — احفظها كويس، هي مفتاح حسابك وملفك</div></div>
+        <div class="hint">6 حروف أو أرقام على الأقل — و لازم يكون فيها حروف وأرقام مع بعض (مثال: ab1234)</div></div>
       <button class="btn btn-p btn-block" id="auth-btn" type="submit">${authMode === 'login' ? 'دخول ←' : 'إنشاء الحساب ✨'}</button>
     </form>
   </div>
@@ -315,6 +315,7 @@ async function doAuth(e) {
     if (!PHONE_RE.test(phone)) throw new Error('اكتب رقم تليفون صحيح (11 رقم يبدأ بـ 01)');
     const pass = $('#f-pass').value;
     if (pass.length < 6) throw new Error('كلمة المرور لازم 6 حروف على الأقل');
+    if (!/[a-zA-Z]/.test(pass) || !/\d/.test(pass)) throw new Error('كلمة المرور لازم تحتوي على حروف وأرقام مع بعض');
     if (authMode === 'reg') {
       const name = $('#f-name').value.trim();
       if (name.split(/\s+/).length < 2) throw new Error('اكتب اسمك على الأقل اسمين');
@@ -403,7 +404,7 @@ function myCases() {
     .filter(c => c && (c.patientUid === ME.uid || c.providerUid === ME.uid))
     .sort((a, b) => b.createdAt - a.createdAt);
 }
-function canSee(c) { return ME && (c.patientUid === ME.uid || c.providerUid === ME.uid || ME.role === 'admin'); }
+function canSee(c) { return ME && (c.patientUid === ME.uid || c.providerUid === ME.uid || ME.role === 'admin' || ME.role === 'dispatcher' || (ME.role === c.type && c.status === 'new')); }
 
 function updateBell() {
   const n = Object.values(NOTIFS).filter(x => !x.read).length;
@@ -461,21 +462,23 @@ function renderHome() {
     </div>`;
   } else if (ME.role === 'admin') {
     html = renderAdminHome();
+  } else if (ME.role === 'dispatcher') {
+    html = renderDispatcherHome();
   } else {
-    const fresh = Object.values(CASES).filter(c => c.status === 'new' && c.type === ME.role && coverageMatch(c)).sort((a, b) => b.createdAt - a.createdAt);
+    const fresh = Object.values(CASES).filter(c => c.status === 'new' && c.type === ME.role && !c.providerUid).sort((a, b) => b.createdAt - a.createdAt);
     const mine = cases.filter(c => c.status !== 'done');
     html = `
     <div class="card" style="background:linear-gradient(150deg,rgba(232,184,75,.14),rgba(20,200,178,.08))">
       <h3>أهلاً د/ ${esc(ME.name.split(' ')[0])} 🌟</h3>
-      <p style="font-size:.82rem;color:var(--muted);line-height:1.9">نطاق شغلك: <b style="color:var(--ink)">${esc(ME.gov || 'محددش')}</b>${ME.centers ? ' — ' + esc(ME.centers) : ''} — غيّره من «حسابي»</p>
+      <p style="font-size:.82rem;color:var(--muted);line-height:1.9">كل طلبات <b style="color:var(--ink)">${ROLE_T[ME.role]}</b> الجديدة بتوصلك هنا على طول — من غير ربط بالمنطقة.</p>
       <div style="display:flex;gap:8px;margin-top:12px">
-        <span class="st st-new" style="font-size:.8rem;padding:7px 14px">${fresh.length} طلب جديد في نطاقك</span>
+        <span class="st st-new" style="font-size:.8rem;padding:7px 14px">${fresh.length} طلب جديد مستني</span>
         <span class="st st-way" style="font-size:.8rem;padding:7px 14px">${mine.length} حالة شغالة</span>
       </div>
     </div>
     <div class="card">
-      <h3>⚡ طلبات جديدة في نطاقك</h3>
-      ${fresh.length ? fresh.map(caseCard).join('') : '<div class="empty"><span class="ic">☕</span>مفيش طلبات جديدة دلوقتي في نطاقك — هيوصلك إشعار أول ما يجي</div>'}
+      <h3>⚡ طلبات جديدة</h3>
+      ${fresh.length ? fresh.map(caseCard).join('') : '<div class="empty"><span class="ic">☕</span>مفيش طلبات جديدة دلوقتي — هيوصلك إشعار أول ما يجي</div>'}
     </div>
     <div class="card">
       <h3>🗂️ حالاتي الشغالة</h3>
@@ -483,6 +486,39 @@ function renderHome() {
     </div>`;
   }
   $('#app').innerHTML = html;
+}
+
+/* نافذة يوزر «الطلبات» — كل الفئات، كل فئة بتبويب وعداد إشعارات لوحدها */
+function renderDispatcherHome() {
+  const all = Object.values(CASES).sort((a, b) => b.createdAt - a.createdAt);
+  const tabs = [['all', '📋 الكل'], ['doctor', '🩺 طبيب'], ['nurse', '🤲 تمريض'], ['lab', '🧪 معمل']];
+  const unreadByType = t => Object.values(NOTIFS).filter(n => {
+    if (n.read) return false;
+    const c = CASES[n.caseId];
+    if (!c) return false;
+    return t === 'all' || c.type === t;
+  }).length;
+  const t = CUR.dispatcherTab || 'all';
+  const list = t === 'all' ? all : all.filter(c => c.type === t);
+  const freshN = all.filter(c => c.status === 'new').length;
+  return `
+  <div class="card" style="background:linear-gradient(150deg,rgba(20,200,178,.16),rgba(30,94,255,.10))">
+    <h3>📞 نوافذ الطلبات</h3>
+    <p style="font-size:.82rem;color:var(--muted);line-height:1.9">كل طلبات المنصة من كل الفئات بتوصلك هنا أول بأول.</p>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <span class="st st-new" style="font-size:.8rem;padding:7px 14px">${freshN} طلب جديد</span>
+      <span class="st st-way" style="font-size:.8rem;padding:7px 14px">${all.length} إجمالي الطلبات</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      ${tabs.map(([k, label]) => {
+        const un = unreadByType(k);
+        return `<button class="btn btn-sm ${t === k ? 'btn-p' : 'btn-o'}" onclick="CUR.dispatcherTab='${k}';render()">${label}${un ? ` <span style="background:var(--red);color:#fff;border-radius:10px;padding:1px 7px;font-size:.66rem;font-weight:800">${un}</span>` : ''}</button>`;
+      }).join('')}
+    </div>
+    ${list.length ? list.slice(0, 60).map(caseCard).join('') : '<div class="empty"><span class="ic">🌿</span>مفيش طلبات في النافذة دي لسه</div>'}
+  </div>`;
 }
 
 function coverageMatch(c) {
@@ -595,9 +631,8 @@ async function submitCase() {
     ME.gov = gov; if (!$('#nc-center').disabled) { ME.centers = center; pushUser(ME); }
     persistLocal();
     pushCase(c);
-    // إشعارات للمقدمين المناسبين حسب النوع والنطاق الجغرافي
-    const targets = Object.values(USERS).filter(u => u.role === c.type && u.active !== false && u.uid !== ME.uid &&
-      u.gov === c.gov && (!u.centers || u.centers.trim() === '*' || u.centers.split(/[،,]/).map(s => s.trim()).some(x => x === c.center || c.center.includes(x))));
+    // إشعارات لكل مقدمي الخدمة من نفس الفئة + يوزر الطلبات (من غير ربط بالمنطقة)
+    const targets = Object.values(USERS).filter(u => (u.role === c.type || u.role === 'dispatcher') && u.active !== false && u.uid !== ME.uid);
     targets.forEach(t => pushNotif(t.uid, {
       id: uid(), caseId: c.id, read: false, at: Date.now(),
       title: SVC[c.type].ic + ' طلب ' + SVC[c.type].name + ' جديد',
@@ -645,7 +680,7 @@ function renderCaseFile() {
   const rxs = Object.values(c._rx || {}).sort((a, b) => b.at - a.at);
   const notes = Object.values(c._notes || {}).sort((a, b) => b.at - a.at);
   const lastV = vitals[0];
-  const canEdit = ME.role !== 'patient';
+  const canEdit = ['doctor', 'nurse', 'lab', 'admin'].includes(ME.role);
 
   let html = `
   <div style="display:flex;gap:8px;margin-bottom:2px">
@@ -672,7 +707,7 @@ function renderCaseFile() {
       ${c.status !== 'done' ? `<a class="btn btn-o btn-sm" href="tel:${esc(c.patientPhone)}">📞 اتصال</a>` : ''}
       ${c.status !== 'done' && c.whatsapp ? `<a class="btn btn-o btn-sm" href="https://wa.me/2${c.patientPhone.slice(1)}" target="_blank">💬 واتساب</a>` : ''}
       ${c.lat && c.lng ? `<a class="btn btn-o btn-sm" href="https://www.google.com/maps?q=${c.lat},${c.lng}" target="_blank">🗺️ الخريطة</a>` : ''}
-      ${canEdit && c.status !== 'done' && c.type !== 'nurse' ? `<button class="btn btn-g btn-sm" onclick="requestNurseModal('${c.id}')">🤲 طلب تمريض</button>` : ''}
+      ${(ME.role === 'doctor' || ME.role === 'admin') && c.status !== 'done' && c.type !== 'nurse' ? `<button class="btn btn-g btn-sm" onclick="requestNurseModal('${c.id}')">🤲 طلب تمريض</button>` : ''}
       ${isPatient && c.status === 'new' ? `<button class="btn btn-d btn-sm" onclick="cancelCase('${c.id}')">إلغاء الطلب</button>` : ''}
     </div>
   </div>
@@ -926,7 +961,7 @@ function sendNurseRequest(id) {
   };
   CASES[nc.id] = nc; persistLocal(); pushCase(nc);
   const nurses = target ? [USERS[target]].filter(Boolean)
-    : Object.values(USERS).filter(u => u.role === 'nurse' && u.active !== false && (!u.gov || u.gov === c.gov) && (!u.centers || u.centers.trim() === '*' || u.centers.split(/[،,]/).map(s => s.trim()).some(x => x === c.center || c.center.includes(x))));
+    : Object.values(USERS).filter(u => (u.role === 'nurse' || u.role === 'dispatcher') && u.active !== false);
   nurses.forEach(t => pushNotif(t.uid, { id: uid(), caseId: nc.id, read: false, at: Date.now(), title: '🤲 طلب تمريض من الطبيب', body: 'د/ ' + ME.name + ' — ' + c.patientName + ' — ' + desc.slice(0, 60) }));
   if (c.patientUid !== ME.uid) pushNotif(c.patientUid, { id: uid(), caseId: nc.id, read: false, at: Date.now(), title: '🤲 تم طلب تمريض لحالتك', body: 'د/ ' + ME.name + ' طلب زيارة تمريض مرتبطة بحالتك — هيتواصل معاك قريب' });
   closeModal(); render();
@@ -1067,7 +1102,7 @@ function markAllRead() {
    حسابي + السحابة
    ============================================================ */
 function renderMe() {
-  const isProvider = ME.role !== 'patient' && ME.role !== 'admin';
+  const isProvider = ME.role !== 'patient' && ME.role !== 'admin' && ME.role !== 'dispatcher';
   $('#app').innerHTML = `
   <div class="card" style="text-align:center;background:linear-gradient(150deg,rgba(20,200,178,.14),rgba(30,94,255,.08))">
     <div style="font-size:2.6rem">${ME.role === 'patient' ? '🧑' : ME.role === 'doctor' ? '🩺' : ME.role === 'nurse' ? '🤲' : '🧪'}</div>
@@ -1077,13 +1112,13 @@ function renderMe() {
   </div>
   ${isProvider ? `
   <div class="card">
-    <h3>📍 نطاق الشغل الجغرافي</h3>
-    <p class="hint" style="margin-bottom:12px">الطلبات اللي بتجيلك في الإشعارات بتتحدد حسب النطاق ده — اختار محافظتك والمراكز اللي بتغطيها (افصل بينهم بفاصلة، أو اكتب * لتغطي كل المراكز)</p>
+    <h3>📍 بيانات التوصيل</h3>
+    <p class="hint">كل الطلبات الجديدة في فئتك بتوصلك دلوقتي من غير ربط بالمنطقة — المحافظة والمراكز للعرض بس.</p>
     <div class="grid2">
       <div class="field"><label>المحافظة</label><select class="inp" id="me-gov">${GOVS.map(g => `<option ${ME.gov === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
-      <div class="field"><label>المراكز المغطاة</label><input class="inp" id="me-centers" value="${esc(ME.centers || '')}" placeholder="دكرنس، طلخا أو *"></div>
+      <div class="field"><label>المراكز</label><input class="inp" id="me-centers" value="${esc(ME.centers || '')}" placeholder="دكرنس، طلخا أو *"></div>
     </div>
-    <button class="btn btn-p btn-block" onclick="saveCoverage()">💾 حفظ النطاق</button>
+    <button class="btn btn-p btn-block" onclick="saveCoverage()">💾 حفظ</button>
   </div>` : ''}
   <div class="card">
     <h3>☁️ حماية السحابة</h3>
@@ -1128,7 +1163,7 @@ async function cloudSyncNow() {
 function changePassModal() {
   openModal(`<h3>🔐 تغيير كلمة المرور</h3>
     <div class="field"><label>القديمة</label><input class="inp" type="password" id="cp-old"></div>
-    <div class="field"><label>الجديدة (6+)</label><input class="inp" type="password" id="cp-new"></div>
+    <div class="field"><label>الجديدة (حروف وأرقام 6+)</label><input class="inp" type="password" id="cp-new"></div>
     <button class="btn btn-p btn-block" onclick="doChangePass()">💾 تغيير</button>`);
 }
 async function doChangePass() {
@@ -1137,6 +1172,7 @@ async function doChangePass() {
   const v = await SEC.verify(ME, oldP);
   if (!v.ok) { toast('القديمة غلط', 'err'); return; }
   if (newP.length < 6) { toast('الجديدة لازم 6+ حروف', 'err'); return; }
+  if (!/[a-zA-Z]/.test(newP) || !/\d/.test(newP)) { toast('الجديدة لازم تحتوي على حروف وأرقام مع بعض', 'err'); return; }
   const hp = await SEC.hashNew(newP);
   ME.salt = hp.salt; ME.pass = hp.pass;
   USERS[ME.uid] = ME;
@@ -1372,11 +1408,24 @@ $$('#bottomnav button').forEach(b => b.onclick = () => go(b.dataset.nav));
 (function boot() {
   cloudInit();
   applyTheme();
+  // زرع يوزر «الطلبات» لو مش موجود (بيسمع كل طلبات كل الفئات)
+  (async () => {
+    try {
+      if (!Object.values(USERS).some(u => u.role === 'dispatcher')) {
+        const hp = await SEC.hashNew('mhmd@1993');
+        const d = { uid: 'dispatcher', name: 'الطلبات', phone: OWNER_PHONE, role: 'dispatcher', salt: hp.salt, pass: hp.pass, gov: '', centers: '*', active: true, createdAt: Date.now() };
+        USERS[d.uid] = d; persistLocal(); pushUser(d);
+      }
+    } catch (e) {}
+  })();
   const ses = LSget('raia_ses', null);
   if (ses && USERS[ses]) {
     ME = USERS[ses];
     attachMyNotifs();
     pullMyCases();
   }
+  // فتح مباشر من اختصارات التطبيق: #new-doctor / #new-nurse / #new-lab
+  const h = (location.hash || '').replace('#', '');
+  if (ME && /^new-(doctor|nurse|lab)$/.test(h)) { CUR.tab = 'new'; newType = h.split('-')[1]; }
   render();
 })();
