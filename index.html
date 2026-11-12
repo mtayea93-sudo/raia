@@ -185,6 +185,7 @@ body.has-install-banner .sig{bottom:calc(84px + env(safe-area-inset-bottom))}
 .payrow input{accent-color:var(--gold)}
 .wa-btn{background:rgba(61,220,132,.13);border:1px solid rgba(61,220,132,.4);color:var(--green)}
 @media (max-width:380px){.pick{grid-template-columns:1fr 1fr}}
+@media (max-width:400px){.brand small{display:none}.brand{font-size:1rem}.brand img{width:30px;height:30px}.topbar-in{gap:6px;padding:10px 10px}}
 </style>
 </head>
 <body>
@@ -195,7 +196,9 @@ body.has-install-banner .sig{bottom:calc(84px + env(safe-area-inset-bottom))}
   <div class="topbar-in">
     <span class="brand"><img src="icon-192.png" alt="رعايتك"><span>رعايتك<small>رعاية طبية منزلية</small></span></span>
     <span class="sp"></span>
+    <button class="bell" id="home-btn" title="الصفحة الرئيسية" style="width:38px;height:38px">🏠</button>
     <button class="bell" id="bell-btn" title="الإشعارات">🔔<span class="bdg" id="bell-bdg" hidden></span></button>
+    <button class="bell" id="logout-btn" title="تسجيل الخروج" style="width:38px;height:38px">⏻</button>
     <button class="chip" id="me-chip" title="حسابي">👤</button>
   </div>
 </header>
