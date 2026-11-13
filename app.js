@@ -5,7 +5,7 @@
    ============================================================ */
 'use strict';
 
-const APP_VERSION = 'raia-2026-11-14';
+const APP_VERSION = 'raia-2026-11-15';
 const OWNER_PHONE = '01060651837'; // رقم المالك — يقدر يسجل بأي دور وبأكتر من حساب
 const PHONE_RE = /^01[0-9]{9}$/;
 const EMAIL_SUF = '@raia.app';
@@ -286,12 +286,9 @@ function renderAuth() {
     <form onsubmit="doAuth(event)">
       ${authMode === 'reg' ? `
       <div class="field"><label>الاسم بالكامل</label><input class="inp" id="f-name" required placeholder="اسمك ثلاثي أو رباعي"></div>
-      <div class="field"><label>أنت مين؟</label>
+      <div class="field"><label>نوع الحساب</label>
         <div class="pick">
-          <label><input type="radio" name="f-role" value="patient" checked><span><span class="ic">🧑</span><b>مريض</b><small>أطلب رعاية ليا أو لحد</small></span></label>
-          <label><input type="radio" name="f-role" value="doctor"><span><span class="ic">🩺</span><b>طبيب</b><small>أستقبل حالات الكشف</small></span></label>
-          <label><input type="radio" name="f-role" value="nurse"><span><span class="ic">🤲</span><b>تمريض</b><small>أستقبل طلبات التمريض</small></span></label>
-          <label><input type="radio" name="f-role" value="lab"><span><span class="ic">🧪</span><b>معمل</b><small>أستقبل سحب العينات</small></span></label>
+          <label style="cursor:default"><span><span class="ic">🧑</span><b>مريض</b><small>أطلب رعاية ليا أو لأي حد — الطلب بيوصل فريق رعايتك على طول</small></span></label>
         </div>
       </div>` : ''}
       <div class="field"><label>رقم التليفون</label><input class="inp" id="f-phone" inputmode="numeric" maxlength="11" required placeholder="01xxxxxxxxx">
@@ -319,7 +316,7 @@ async function doAuth(e) {
     if (authMode === 'reg') {
       const name = $('#f-name').value.trim();
       if (name.split(/\s+/).length < 2) throw new Error('اكتب اسمك على الأقل اسمين');
-      const role = document.querySelector('input[name=f-role]:checked').value;
+      const role = 'patient'; // التسجيل للمرضى بس — حسابات «الطلبات» والإدارة معمولة من صاحب الموقع
       const existing = Object.values(USERS).find(u => u.phone === phone && u.role === role);
       if (existing && phone !== OWNER_PHONE) throw new Error('الرقم ده مسجل بنفس الدور قبل كده — ادخل بيه من تسجيل الدخول');
       const hp = await SEC.hashNew(pass);
@@ -1132,7 +1129,7 @@ function renderMe() {
     <h3>🔐 الأمان</h3>
     <button class="btn btn-o btn-block" onclick="changePassModal()">تغيير كلمة المرور</button>
   </div>
-  <button class="btn btn-d btn-block" style="margin-top:16px" onclick="if(confirm('هتسجل خروج؟'))logout()">⏻ تسجيل الخروج</button>
+  <button class="btn btn-d btn-block" style="margin-top:16px" onclick="if(confirm('هتسجل خروج؟'))logout()">🚪 تسجيل الخروج</button>
   <p style="text-align:center;margin-top:14px;font-size:.66rem;color:var(--muted)">رعايتك · الإصدار ${APP_VERSION}</p>`;
 }
 
