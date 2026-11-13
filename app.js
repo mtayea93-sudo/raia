@@ -286,11 +286,7 @@ function renderAuth() {
     <form onsubmit="doAuth(event)">
       ${authMode === 'reg' ? `
       <div class="field"><label>الاسم بالكامل</label><input class="inp" id="f-name" required placeholder="اسمك ثلاثي أو رباعي"></div>
-      <div class="field"><label>نوع الحساب</label>
-        <div class="pick">
-          <label style="cursor:default"><span><span class="ic">🧑</span><b>مريض</b><small>أطلب رعاية ليا أو لأي حد — الطلب بيوصل فريق رعايتك على طول</small></span></label>
-        </div>
-      </div>` : ''}
+      <div class="field"><label>الحساب</label><div class="inp" style="background:rgba(20,200,178,.08);border-color:rgba(20,200,178,.35);font-weight:700">🧑 حساب مريض — تقدر تطلب كل خدمات الرعاية منه</div></div>` : ''}
       <div class="field"><label>رقم التليفون</label><input class="inp" id="f-phone" inputmode="numeric" maxlength="11" required placeholder="01xxxxxxxxx">
         <div class="hint">رقم بـ 11 رقم يبدأ بـ 01 — ده هيبقى اسم المستخدم بتاعك</div></div>
       <div class="field"><label>كلمة المرور</label><input class="inp" id="f-pass" type="password" required placeholder="••••••••" minlength="6">
@@ -316,7 +312,7 @@ async function doAuth(e) {
     if (authMode === 'reg') {
       const name = $('#f-name').value.trim();
       if (name.split(/\s+/).length < 2) throw new Error('اكتب اسمك على الأقل اسمين');
-      const role = 'patient'; // التسجيل للمرضى بس — حسابات «الطلبات» والإدارة معمولة من صاحب الموقع
+      const role = 'patient'; // التسجيل الجديد للمرضى بس — يوزر «الطلبات» بيتزرع تلقائيًا
       const existing = Object.values(USERS).find(u => u.phone === phone && u.role === role);
       if (existing && phone !== OWNER_PHONE) throw new Error('الرقم ده مسجل بنفس الدور قبل كده — ادخل بيه من تسجيل الدخول');
       const hp = await SEC.hashNew(pass);
@@ -326,7 +322,6 @@ async function doAuth(e) {
       pushUser(u);
       enterApp();
       toast('🎉 أهلاً بيك في رعايتك يا ' + name.split(' ')[0], 'ok');
-      if (role !== 'patient') setTimeout(() => { location.hash = '#/me'; CUR.tab = 'me'; render(); }, 400);
     } else {
       const cands = Object.values(USERS).filter(x => x.phone === phone);
       if (!cands.length) throw new Error('الرقم أو كلمة المرور غلط — جرّب تاني');
@@ -677,7 +672,10 @@ function renderCaseFile() {
   const rxs = Object.values(c._rx || {}).sort((a, b) => b.at - a.at);
   const notes = Object.values(c._notes || {}).sort((a, b) => b.at - a.at);
   const lastV = vitals[0];
-  const canEdit = ['doctor', 'nurse', 'lab', 'admin'].includes(ME.role);
+  const canVitals = ['dispatcher', 'admin', 'doctor', 'nurse', 'lab'].includes(ME.role);
+  const canFiles = ['patient', 'dispatcher', 'admin', 'doctor', 'nurse', 'lab'].includes(ME.role);
+  const canRx = ['patient', 'dispatcher', 'admin'].includes(ME.role);
+  const canNotes = ['dispatcher', 'admin', 'doctor', 'nurse', 'lab'].includes(ME.role);
 
   let html = `
   <div style="display:flex;gap:8px;margin-bottom:2px">
@@ -696,15 +694,19 @@ function renderCaseFile() {
       ${c.desc ? '<br>📝 ' + esc(c.desc) : ''}
       ${c.providerName ? '<br>👨‍⚕️ المكلف: <b>' + esc(c.providerName) + '</b>' : ''}
       ${c.requestedByName ? '<br>🤲 طلب من: <b>' + esc(c.requestedByName) + '</b>' : ''}
+      ${c.rating ? '<br>⭐ التقييم: <b>' + c.rating + ' من 5</b>' : ''}
     </div>
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-      ${isProvider && c.status === 'new' ? `<button class="btn btn-p btn-sm" onclick="acceptCase('${c.id}')">🙋 استلم الحالة</button>` : ''}
-      ${isProvider && c.status === 'assigned' ? `<button class="btn btn-g btn-sm" onclick="setStatus('${c.id}','way')">🚗 بدأت الطريق</button><button class="btn btn-p btn-sm" onclick="setStatus('${c.id}','done')">✅ تمت الخدمة</button>` : ''}
-      ${isProvider && c.status === 'way' ? `<button class="btn btn-p btn-sm" onclick="setStatus('${c.id}','done')">✅ تمت الخدمة</button>` : ''}
+      ${isProvider && ME.role !== 'dispatcher' && c.status === 'new' ? `<button class="btn btn-p btn-sm" onclick="acceptCase('${c.id}')">🙋 استلم الحالة</button>` : ''}
+      ${isProvider && ME.role !== 'dispatcher' && c.status === 'assigned' ? `<button class="btn btn-g btn-sm" onclick="setStatus('${c.id}','way')">🚗 بدأت الطريق</button><button class="btn btn-p btn-sm" onclick="setStatus('${c.id}','done')">✅ تمت الخدمة</button>` : ''}
+      ${isProvider && ME.role !== 'dispatcher' && c.status === 'way' ? `<button class="btn btn-p btn-sm" onclick="setStatus('${c.id}','done')">✅ تمت الخدمة</button>` : ''}
+      ${ME.role === 'dispatcher' && c.status === 'new' ? `<button class="btn btn-p btn-sm" onclick="receiveCase('${c.id}')">📥 تم استلام الطلب</button>` : ''}
+      ${ME.role === 'dispatcher' && isProvider && (c.status === 'assigned' || c.status === 'way') ? `<button class="btn btn-p btn-sm" onclick="setStatus('${c.id}','done')">✅ تمت الخدمة</button>` : ''}
       ${c.status !== 'done' ? `<a class="btn btn-o btn-sm" href="tel:${esc(c.patientPhone)}">📞 اتصال</a>` : ''}
       ${c.status !== 'done' && c.whatsapp ? `<a class="btn btn-o btn-sm" href="https://wa.me/2${c.patientPhone.slice(1)}" target="_blank">💬 واتساب</a>` : ''}
       ${c.lat && c.lng ? `<a class="btn btn-o btn-sm" href="https://www.google.com/maps?q=${c.lat},${c.lng}" target="_blank">🗺️ الخريطة</a>` : ''}
       ${(ME.role === 'doctor' || ME.role === 'admin') && c.status !== 'done' && c.type !== 'nurse' ? `<button class="btn btn-g btn-sm" onclick="requestNurseModal('${c.id}')">🤲 طلب تمريض</button>` : ''}
+      ${isPatient && c.status === 'done' ? (c.rating ? `<span class="st st-done" style="font-size:.8rem;padding:7px 12px">⭐ ${c.rating}/5</span>` : `<button class="btn btn-g btn-sm" onclick="rateModal('${c.id}')">⭐ قيّم الخدمة</button>`) : ''}
       ${isPatient && c.status === 'new' ? `<button class="btn btn-d btn-sm" onclick="cancelCase('${c.id}')">إلغاء الطلب</button>` : ''}
     </div>
   </div>
@@ -722,7 +724,7 @@ function renderCaseFile() {
     ${vitals.length > 6 ? `<div style="text-align:center;margin-top:8px"><span onclick="showAllVitals('${c.id}')" style="font-size:.75rem;color:var(--teal);cursor:pointer">عرض كل القياسات (${vitals.length})</span></div>` : ''}
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
       ${vitals.length ? `<button class="btn btn-o btn-sm" onclick="casePdf('${c.id}','vitals')">📄 تحميل PDF للعلامات</button>` : ''}
-      ${canEdit ? `<button class="btn btn-o btn-sm" onclick="addVitalModal('${c.id}')">➕ تسجيل قياس جديد</button>` : `<span style="font-size:.72rem;color:var(--muted);align-self:center">🔒 المعاينة فقط — التسجيل للطبيب والتمريض والمعمل</span>`}
+      ${canVitals ? `<button class="btn btn-o btn-sm" onclick="addVitalModal('${c.id}')">➕ تسجيل قياس جديد</button>` : `<span style="font-size:.72rem;color:var(--muted);align-self:center">🔒 تسجيل القياسات ليوزر «الطلبات» بس</span>`}
     </div>
   </div>
 
@@ -730,12 +732,12 @@ function renderCaseFile() {
     <h3>🧪 التحاليل والأشعة (صور)</h3>
     <div class="files">
       ${files.map(f => `<img src="${f.data}" alt="${esc(f.name)}" onclick="viewImg('${f.id}')">`).join('')}
-      ${canEdit ? `<label class="fadd" title="رفع صور التحاليل — اضغط واختر صورة أو أكتر">＋<input type="file" accept="image/*" multiple hidden onchange="uploadFile('${c.id}', this)"></label>` : ''}
+      ${canFiles ? `<label class="fadd" title="رفع صور التحاليل — اضغط واختر صورة أو أكتر">＋<input type="file" accept="image/*" multiple hidden onchange="uploadFile('${c.id}', this)"></label>` : ''}
     </div>
-    ${files.length ? `<p class="hint">اضغط على أي صورة لتكبيرها</p>` : `<p class="hint">${canEdit ? 'ارفع صور التحاليل (أي صيغة وأي عدد) — بتتضغط وتتخزن في ملف المريض الخاص' : 'لسه مفيش تحاليل مرفوعة'}</p>`}
+    ${files.length ? `<p class="hint">اضغط على أي صورة لتكبيرها</p>` : `<p class="hint">${canFiles ? 'ارفع صور التحاليل (أي صيغة وأي عدد) — بتتضغط وتتخزن في ملف المريض الخاص' : 'لسه مفيش تحاليل مرفوعة'}</p>`}
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       ${files.length ? `<button class="btn btn-o btn-sm" onclick="casePdf('${c.id}','files')">📄 تحميل PDF للتحاليل</button>` : ''}
-      ${!canEdit ? `<span style="font-size:.72rem;color:var(--muted);align-self:center">🔒 رفع التحاليل للطبيب والتمريض والمعمل بس</span>` : ''}
+      ${!canFiles ? `<span style="font-size:.72rem;color:var(--muted);align-self:center">🔒 رفع التحاليل للمريض أو «الطلبات» بس</span>` : ''}
     </div>
   </div>
 
@@ -745,10 +747,10 @@ function renderCaseFile() {
       <span style="font-weight:600">${esc(n.text)}</span>
       <time>${esc(n.by || '')} — ${fmtDT(n.at)}</time>
     </div>`).join('') : '<div class="empty" style="padding:16px"><span class="ic">📌</span>لسه مفيش ملاحظات</div>'}
-    ${canEdit ? `<div style="display:flex;gap:8px;margin-top:10px">
-      <input class="inp" id="note-inp" placeholder="اكتب طلب أو ملاحظة للحالة..." style="flex:1">
+    ${canNotes ? `<div style="display:flex;gap:8px;margin-top:10px">
+      <input class="inp" id="note-inp" placeholder="اكتب طلب أو ملاحظة للحالة (طلب روشتة / تحاليل / متابعة...)" style="flex:1">
       <button class="btn btn-p" onclick="addCaseNote('${c.id}')">إضافة</button>
-    </div>` : `<p class="hint">🔒 المريض بيعرض الملاحظات فقط — الإضافة للفريق الطبي</p>`}
+    </div>` : `<p class="hint">🔒 المريض بيعرض الملاحظات فقط — الإضافة ليوزر «الطلبات»</p>`}
   </div>
 
   <div class="card">
@@ -758,7 +760,7 @@ function renderCaseFile() {
       <time>د/ ${esc(r.byName)} — ${fmtDT(r.at)}</time>
       ${r.img ? `<img src="${r.img}" style="max-width:130px;border-radius:10px;border:1px solid var(--stroke)" onclick="viewImgSrc('${esc(r.img)}')">` : ''}
     </div>`).join('') : '<div class="empty" style="padding:16px"><span class="ic">💊</span>لسه مفيش علاج مسجل</div>'}
-    ${(isProvider || ME.role === 'admin') ? `<button class="btn btn-o btn-block" style="margin-top:10px" onclick="addRxModal('${c.id}')">➕ إضافة علاج / روشتة</button>` : '<p class="hint">الطبيب أو التمريض المكلف بس اللي يضيف العلاج</p>'}
+    ${(canRx) ? `<button class="btn btn-o btn-block" style="margin-top:10px" onclick="addRxModal('${c.id}')">➕ إضافة علاج / روشتة</button>` : '<p class="hint">إضافة العلاج للمريض أو «الطلبات» بس</p>'}
   </div>`;
   $('#app').innerHTML = html;
 }
@@ -785,7 +787,7 @@ function addVitalModal(id) {
 }
 async function saveVital(id) {
   if (noPreview()) return;
-  if (ME.role === 'patient') { toast('🔒 المريض يعاين بس — التسجيل للطبيب والتمريض والمعمل', 'err'); return; }
+  if (!['dispatcher', 'admin', 'doctor', 'nurse', 'lab'].includes(ME.role)) { toast('🔒 تسجيل القياسات ليوزر «الطلبات» بس', 'err'); return; }
   const g = x => ($('#v-' + x) || {}).value;
   const atEl = $('#v-at').value;
   const at = atEl ? new Date(atEl).getTime() : Date.now();
@@ -802,7 +804,7 @@ async function saveVital(id) {
 
 async function uploadFile(id, inp) {
   if (noPreview()) { inp.value = ''; return; }
-  if (ME.role === 'patient') { toast('🔒 المريض يعاين بس — الرفع للطبيب والتمريض والمعمل', 'err'); inp.value = ''; return; }
+  if (!['patient', 'dispatcher', 'admin', 'doctor', 'nurse', 'lab'].includes(ME.role)) { toast('🔒 غير مسموح', 'err'); inp.value = ''; return; }
   const list = Array.from(inp.files || []);
   if (!list.length) return;
   toast(list.length > 1 ? `⏳ جاري رفع ${list.length} صور...` : '⏳ جاري رفع الصورة...');
@@ -1021,8 +1023,47 @@ function acceptCase(id) {
     title: '🙋 حالتك اتقبلت',
     body: c.providerName + ' استلم الحالة — هيتواصل معاك قريب'
   });
-  render();
-  toast('✅ استلمت الحالة — تواصل مع المريض وحدد المعاد', 'ok');
+  render();  toast('✅ استلمت الحالة — تواصل مع المريض وحدد المعاد', 'ok');
+}
+
+/* استلام الطلب من يوزر «الطلبات» + إشعار فوري للمريض */
+function receiveCase(id) {
+  if (noPreview()) return;
+  const c = CASES[id];
+  if (!c || c.status !== 'new') return;
+  c.status = 'assigned';
+  c.providerUid = ME.uid;
+  c.providerName = 'الطلبات';
+  c.assignedAt = Date.now();
+  c.updatedAt = Date.now();
+  pushCase(c); persistLocal(); render();
+  pushNotif(c.patientUid, { id: uid(), caseId: id, read: false, at: Date.now(), title: '✅ تم استلام طلبك', body: 'طلبك (' + ((SVC[c.type] || {}).name || '') + ') اتسلم وهيتم التواصل معاك في أقرب وقت 📞' });
+  toast('✅ تم استلام الطلب ووصل إشعار للمريض', 'ok');
+}
+
+/* تقييم الخدمة من المريض */
+function rateModal(id) {
+  const c = CASES[id];
+  if (!c || c.patientUid !== ME.uid || c.status !== 'done') return;
+  openModal(`<h3>⭐ قيّم الخدمة</h3>
+    <p style="text-align:center;font-size:.85rem;color:var(--muted);margin-bottom:14px">${esc(c.patientName)} — ${esc((SVC[c.type] || {}).name || '')}</p>
+    <div style="display:flex;justify-content:center;gap:8px;direction:ltr;flex-wrap:wrap">
+      ${[1, 2, 3, 4, 5].map(n => `<button class="btn btn-o" style="font-size:1.1rem;padding:10px 13px;font-weight:800" onclick="saveRating('${id}',${n})">${n}★</button>`).join('')}
+    </div>
+    <p class="hint" style="text-align:center;margin-top:12px">دوس على عدد النجوم — 5 يعني خدمة ممتازة</p>
+    <button class="btn btn-o btn-block" style="margin-top:8px" onclick="closeModal()">إلغاء</button>`);
+}
+function saveRating(id, n) {
+  if (noPreview()) return;
+  const c = CASES[id];
+  if (!c || c.patientUid !== ME.uid || c.status !== 'done') return;
+  c.rating = n;
+  c.ratedAt = Date.now();
+  c.updatedAt = Date.now();
+  pushCase(c); persistLocal(); closeModal(); render();
+  const du = Object.values(USERS).find(u => u.role === 'dispatcher');
+  if (du) pushNotif(du.uid, { id: uid(), caseId: id, read: false, at: Date.now(), title: '⭐ تقييم جديد ' + n + '/5', body: c.patientName + ' قيّم خدمة ' + ((SVC[c.type] || {}).name || '') });
+  toast('⭐ تم تسجيل تقييمك (' + n + ' من 5) — شكرًا ليك', 'ok');
 }
 function setStatus(id, st) {
   if (noPreview()) return;
@@ -1129,7 +1170,7 @@ function renderMe() {
     <h3>🔐 الأمان</h3>
     <button class="btn btn-o btn-block" onclick="changePassModal()">تغيير كلمة المرور</button>
   </div>
-  <button class="btn btn-d btn-block" style="margin-top:16px" onclick="if(confirm('هتسجل خروج؟'))logout()">🚪 تسجيل الخروج</button>
+  <button class="btn btn-d btn-block" style="margin-top:16px" onclick="if(confirm('هتسجل خروج؟'))logout()">⏻ تسجيل الخروج</button>
   <p style="text-align:center;margin-top:14px;font-size:.66rem;color:var(--muted)">رعايتك · الإصدار ${APP_VERSION}</p>`;
 }
 
@@ -1259,9 +1300,7 @@ function renderAdminHome() {
     <p class="hint" style="margin-bottom:10px">ادخل بعين المريض أو الطبيب أو التمريض أو المعمل وشوف الموقع زي ما بيظهرلهم بالظبط.</p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <button class="btn btn-o" onclick="previewAs('patient')">🧑 مريض</button>
-      <button class="btn btn-o" onclick="previewAs('doctor')">🩺 طبيب</button>
-      <button class="btn btn-o" onclick="previewAs('nurse')">🤲 تمريض</button>
-      <button class="btn btn-o" onclick="previewAs('lab')">🧪 معمل</button>
+      <button class="btn btn-o" onclick="previewAs('dispatcher')">📞 الطلبات</button>
     </div>
   </div>
   <div class="card">
