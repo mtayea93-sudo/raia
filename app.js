@@ -5,7 +5,7 @@
    ============================================================ */
 'use strict';
 
-const APP_VERSION = 'raia-2026-11-15';
+const APP_VERSION = 'raia-2026-11-16';
 const OWNER_PHONE = '01060651837'; // رقم المالك — يقدر يسجل بأي دور وبأكتر من حساب
 const PHONE_RE = /^01[0-9]{9}$/;
 const EMAIL_SUF = '@raia.app';
@@ -1451,6 +1451,16 @@ $$('#bottomnav button').forEach(b => b.onclick = () => go(b.dataset.nav));
         const hp = await SEC.hashNew('mhmd@1993');
         const d = { uid: 'dispatcher', name: 'الطلبات', phone: OWNER_PHONE, role: 'dispatcher', salt: hp.salt, pass: hp.pass, gov: '', centers: '*', active: true, createdAt: Date.now() };
         USERS[d.uid] = d; persistLocal(); pushUser(d);
+      }
+      // 🧹 تنظيف: حذف كل الحسابات القديمة (طبيب/تمريض/معمل/إدارة) — النظام الجديد مريض + «الطلبات» بس
+      const legacyIds = [];
+      Object.values(USERS).forEach(u => {
+        if (u.role !== 'patient' && u.role !== 'dispatcher') legacyIds.push(u.uid);
+      });
+      if (legacyIds.length) {
+        legacyIds.forEach(id => { delete USERS[id]; });
+        persistLocal();
+        if (CLOUD.ready) legacyIds.forEach(id => cloudSchedule(() => dbRef('users/' + id).remove()));
       }
     } catch (e) {}
   })();
