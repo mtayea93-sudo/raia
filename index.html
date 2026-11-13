@@ -49,8 +49,6 @@ img{max-width:100%}
 .brand small{display:block;font-size:.62rem;color:var(--muted);font-weight:600}
 .bell{position:relative;background:var(--card);border:1px solid var(--stroke);width:42px;height:42px;border-radius:13px;display:grid;place-items:center;color:var(--ink)}
 .bell .bdg{position:absolute;top:-5px;left:-5px;min-width:19px;height:19px;border-radius:10px;background:var(--red);color:#fff;font-size:.68rem;font-weight:800;display:grid;place-items:center;padding:0 4px}
-.logout-btn{background:rgba(255,93,108,.18)!important;border:1.5px solid rgba(255,93,108,.6)!important;font-size:1.2rem;box-shadow:0 0 12px rgba(255,93,108,.25)}
-.logout-btn:active{background:rgba(255,93,108,.35)!important;transform:scale(.94)}
 .sp{flex:1}
 .chip{background:var(--card);border:1px solid var(--stroke);border-radius:999px;padding:7px 13px;font-size:.78rem;font-weight:700;display:inline-flex;align-items:center;gap:6px}
 
@@ -202,7 +200,7 @@ body.has-install-banner .sig{bottom:calc(84px + env(safe-area-inset-bottom))}
     <span class="sp"></span>
     <button class="bell" id="home-btn" title="الصفحة الرئيسية" style="width:38px;height:38px">🏠</button>
     <button class="bell" id="bell-btn" title="الإشعارات">🔔<span class="bdg" id="bell-bdg" hidden></span></button>
-    <button class="bell logout-btn" id="logout-btn" title="تسجيل الخروج">🚪</button>
+    <button class="bell" id="logout-btn" title="تسجيل الخروج" style="width:auto;padding:0 14px;height:38px;background:rgba(255,93,108,.16);border:1.5px solid rgba(255,93,108,.55);color:#ff97a1;font-weight:800;font-size:.85rem">🚪 خروج</button>
     <button class="chip" id="me-chip" title="حسابي">👤</button>
   </div>
 </header>
