@@ -385,11 +385,17 @@ async function doAuth(e) {
       }
       // أول حساب بالرقم الشخصي للمالك = يوزر «الطلبات»
       const isOwner = phone === OWNER_PHONE && !SETTINGS.dispUid;
-      const u = { uid: cred.user.uid, name, phone, role: isOwner ? 'dispatcher' : 'patient', gov: '', centers: '', active: true, createdAt: Date.now() };
+      const u = { uid: cred.user.uid, name, phone, role: 'patient', gov: '', centers: '', active: true, createdAt: Date.now() };
       USERS[u.uid] = u;
       ME = u;
-      if (isOwner) { SETTINGS.dispUid = u.uid; pushSettings(); }
       pushUser(u);
+      if (isOwner) {
+        SETTINGS.dispUid = u.uid;
+        pushSettings();
+        ME.role = 'dispatcher';
+        USERS[u.uid] = ME;
+        pushUser(ME);
+      }
       enterApp();
       toast('🎉 أهلاً بيك في رعايتك يا ' + name.split(' ')[0], 'ok');
     } else {
@@ -406,6 +412,12 @@ async function doAuth(e) {
       const prof = snap.val();
       if (!prof) throw new Error('الحساب موجود بس الملف مش متسجل — سجّل حساب جديد بنفس الرقم');
       if (prof.active === false) throw new Error('الحساب موقوف من الإدارة — تواصل معانا');
+      if (!SETTINGS.dispUid && prof.phone === OWNER_PHONE) {
+        SETTINGS.dispUid = cred.user.uid;
+        prof.role = 'dispatcher';
+        pushSettings();
+        pushUser(prof);
+      }
       USERS[cred.user.uid] = prof;
       ME = prof;
       enterApp();
