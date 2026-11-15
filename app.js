@@ -5,7 +5,7 @@
    ============================================================ */
 'use strict';
 
-const APP_VERSION = 'raia-2026-11-16b';
+const APP_VERSION = 'raia-2026-11-16c';
 const OWNER_PHONE = '01060651837'; // رقم المالك — يقدر يسجل بأي دور وبأكتر من حساب
 const PHONE_RE = /^01[0-9]{9}$/;
 const EMAIL_SUF = '@raia.app';
@@ -616,10 +616,29 @@ function caseCard(c) {
 let newType = 'doctor';
 function goNew(t) { newType = t || 'doctor'; CUR.tab = 'new'; render(); }
 
+/* بيانات المريض من آخر طلب له — بتتنقل تلقائي لأي طلب جديد من أي فئة */
+function lastMyCase() {
+  if (!ME) return null;
+  return Object.values(CASES).filter(c => c.patientUid === ME.uid).sort((a, b) => b.createdAt - a.createdAt)[0] || null;
+}
+function lastMyVital() {
+  if (!ME) return null;
+  const all = [];
+  Object.values(CASES).forEach(c => {
+    if (c.patientUid !== ME.uid || !c._vitals) return;
+    Object.values(c._vitals).forEach(v => all.push(v));
+  });
+  if (!all.length) return null;
+  all.sort((a, b) => b.at - a.at);
+  return all.find(v => !v.carried) || all[0];
+}
 function renderNewCase() {
+  const prev = lastMyCase();
+  const prevGov = (prev && prev.gov) || ME.gov;
   $('#app').innerHTML = `
   <div class="card">
     <h3>📝 طلب خدمة جديدة</h3>
+    ${prev ? `<div class="hint" style="background:rgba(20,200,178,.08);border:1px solid rgba(20,200,178,.25);border-radius:10px;padding:8px 12px;margin-bottom:10px">📋 اتعبّت بياناتك تلقائيًا من آخر طلب (${new Date(prev.createdAt).toLocaleDateString('ar-EG')} — ${SVC[prev.type] ? SVC[prev.type].name : ''}) — راجعها وعدّل اللي محتاج تغييره</div>` : ''}
     <div class="field"><label>الخدمة المطلوبة</label>
       <div class="pick">
         ${Object.entries(SVC).map(([k, s]) => `<label><input type="radio" name="nc-type" value="${k}" ${newType === k ? 'checked' : ''} onchange="newType='${k}'"><span><span class="ic">${s.ic}</span><b>${s.name}</b></span></label>`).join('')}
@@ -627,23 +646,23 @@ function renderNewCase() {
     </div>
     <div class="field"><label>اسم المريض</label><input class="inp" id="nc-name" value="${esc(ME.name)}"></div>
     <div class="grid2">
-      <div class="field"><label>السن</label><input class="inp" id="nc-age" inputmode="numeric" maxlength="3" placeholder="مثال: 45"></div>
-      <div class="field"><label>النوع</label><select class="inp" id="nc-gender"><option value="">اختر...</option><option value="male">ذكر</option><option value="female">أنثى</option></select></div>
+      <div class="field"><label>السن</label><input class="inp" id="nc-age" inputmode="numeric" maxlength="3" placeholder="مثال: 45" value="${prev && prev.age ? prev.age : ''}"></div>
+      <div class="field"><label>النوع</label><select class="inp" id="nc-gender"><option value="">اختر...</option><option value="male" ${prev && prev.gender === 'male' ? 'selected' : ''}>ذكر</option><option value="female" ${prev && prev.gender === 'female' ? 'selected' : ''}>أنثى</option></select></div>
     </div>
     <div class="field"><label>وصف مختصر للحالة</label><textarea class="inp" id="nc-desc" placeholder="مثال: مريض سكر محتاج متابعة ضغط وسكر، أو سحب عينة صايم الصبح..."></textarea></div>
     <div class="grid2">
-      <div class="field"><label>المحافظة</label><select class="inp" id="nc-gov">${GOVS.map(g => `<option ${ME.gov === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
-      <div class="field"><label>المركز / القسم</label><input class="inp" id="nc-center" placeholder="مثال: دكرنس" value="${esc(ME.centers || '')}"></div>
+      <div class="field"><label>المحافظة</label><select class="inp" id="nc-gov">${GOVS.map(g => `<option ${prevGov === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
+      <div class="field"><label>المركز / القسم</label><input class="inp" id="nc-center" placeholder="مثال: دكرنس" value="${esc((prev && prev.center) || ME.centers || '')}"></div>
     </div>
-    <div class="field"><label>الشارع ورقم العقار بالتفصيل</label><input class="inp" id="nc-street" placeholder="مثال: شارع المستشفى — عقار 12 — الدور 2"></div>
-    <div class="field"><label>علامة مميزة قريبة (مهمة جدًا للوصول)</label><input class="inp" id="nc-mark" placeholder="مثال: جنب مسجد النور / محل الأمانة"></div>
+    <div class="field"><label>الشارع ورقم العقار بالتفصيل</label><input class="inp" id="nc-street" placeholder="مثال: شارع المستشفى — عقار 12 — الدور 2" value="${esc(prev && prev.street || '')}"></div>
+    <div class="field"><label>علامة مميزة قريبة (مهمة جدًا للوصول)</label><input class="inp" id="nc-mark" placeholder="مثال: جنب مسجد النور / محل الأمانة" value="${esc(prev && prev.landmark || '')}"></div>
     <div class="field"><label>📍 الموقع على الخريطة — اضغط على الخريطة لتحديد موقع العنوان</label>
       <div id="nc-map" style="height:220px;border-radius:14px;border:1px solid var(--stroke);z-index:1"></div>
       <div class="hint" id="nc-map-hint">اختياري — بس بيسهّل على فريق الرعاية إنه يلاقيك أسرع</div>
     </div>
     <div class="field"><label>ملاحظات وطلبات الحالة (اختياري)</label><textarea class="inp" id="nc-notes" placeholder="أي طلبات أو تعليمات خاصة بالحالة — مثال: المريض بياخد أدوية ضغط، يفضل الحضور قبل الظهر..."></textarea></div>
     <div class="grid2">
-      <div class="field"><label>تليفون بديل (اختياري)</label><input class="inp" id="nc-phone2" inputmode="numeric" maxlength="11" placeholder="01xxxxxxxxx"></div>
+      <div class="field"><label>تليفون بديل (اختياري)</label><input class="inp" id="nc-phone2" inputmode="numeric" maxlength="11" placeholder="01xxxxxxxxx" value="${esc(prev && prev.phone2 || '')}"></div>
       <div class="field"><label>&nbsp;</label><label class="payrow" style="margin-top:0"><input type="checkbox" id="nc-wa" checked><span>💬 الرقم متاح عليه واتساب</span></label></div>
     </div>
     ${SETTINGS.payEnabled ? `
@@ -690,6 +709,14 @@ async function submitCase() {
       createdAt: Date.now(), updatedAt: Date.now()
     };
     CASES[c.id] = c;
+    /* آخر قياس علامات من أي طلب قديم بينتقل للطلب الجديد — أي فئة تلاقي علامات المريض جاهزة */
+    const pv = lastMyVital();
+    if (pv && (pv.sugar || pv.sys || pv.pulse || pv.temp || pv.spo2)) {
+      const vid = uid();
+      const v = { sugar: pv.sugar || '', sys: pv.sys || '', dia: pv.dia || '', pulse: pv.pulse || '', temp: pv.temp || '', spo2: pv.spo2 || '', by: ME.uid, byName: 'من آخر طلب للمريض', at: Date.now(), carried: true };
+      c._vitals = { [vid]: v };
+      if (CLOUD.ready) pushSub('vitals', c.id, vid, v);
+    }
     if (notesTxt) {
       const n0 = { id: uid(), text: notesTxt, by: ME.name || 'المريض', role: ME.role, at: Date.now() };
       c._notes = { [n0.id]: n0 };
