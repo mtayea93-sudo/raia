@@ -5,7 +5,7 @@
    ============================================================ */
 'use strict';
 
-const APP_VERSION = 'raia-2026-11-16';
+const APP_VERSION = 'raia-2026-11-16b';
 const OWNER_PHONE = '01060651837'; // رقم المالك — يقدر يسجل بأي دور وبأكتر من حساب
 const PHONE_RE = /^01[0-9]{9}$/;
 const EMAIL_SUF = '@raia.app';
@@ -124,9 +124,10 @@ let ME = null;            // المستخدم الحالي {uid,name,phone,role,
 let USERS = LSget('raia_users', {});    // uid -> user
 let CASES = LSget('raia_cases', {});    // id -> case
 let NOTIFS = LSget('raia_notifs', {});  // id -> notif (بتاعتي بس)
-let SETTINGS = LSget('raia_settings', { instaQr: '', adminHash: null, adminSalt: null, payEnabled: false, theme: null, logo: '' });
+let SETTINGS = LSget('raia_settings', { instaQr: '', payEnabled: false, theme: null, logo: '', dispUid: null });
 const DEFAULT_THEME = { teal: '#14c8b2', teal2: '#0da595', gold: '#e8b84b', bg: '#0a1424' };
 let SUBS = { cases: {}, vitals: {}, files: {}, rx: {}, notes: {} };   // بيانات فرعية محمّلة للحالة المفتوحة
+let CASE_SUBS = {};   // اشتراكات الحالات الحية (للمريض)
 let CLOUD = { ready: false, online: false };
 let CUR = { case: null, tab: 'home', providerTab: 'new', dispatcherTab: 'all' };
 
@@ -169,6 +170,7 @@ function dbRef(p) { return firebase.database().ref('raia/' + p); }
 function pushUser(u) {
   if (!CLOUD.ready || (u && u.preview)) return;
   const c = Object.assign({}, u);
+  delete c.pass; delete c.salt; delete c.password;
   cloudSchedule(() => dbRef('users/' + u.uid).set(c));
 }
 function pushCase(c) {
@@ -185,12 +187,14 @@ function pushNotif(toUid, n) {
 }
 function pushSettings() {
   if (!CLOUD.ready) return;
-  cloudSchedule(() => dbRef('settings').set({ instaQr: SETTINGS.instaQr, adminHash: SETTINGS.adminHash, adminSalt: SETTINGS.adminSalt, payEnabled: !!SETTINGS.payEnabled, theme: SETTINGS.theme || null, logo: SETTINGS.logo || '' }));
+  cloudSchedule(() => dbRef('settings').set({ instaQr: SETTINGS.instaQr, dispUid: SETTINGS.dispUid || null, payEnabled: !!SETTINGS.payEnabled, theme: SETTINGS.theme || null, logo: SETTINGS.logo || '' }));
 }
 function pushSub(kind, caseId, id, val) {
   if (!CLOUD.ready) return;
   cloudSchedule(() => dbRef(kind + '/' + caseId + '/' + id).set(val));
 }
+
+const emailFor = p => p + EMAIL_SUF;   // 🔐 الإيميل المقابل للرقم في Firebase Auth
 
 function cloudInit() {
   if (!window.firebase || !firebase.auth) { setTimeout(cloudInit, 250); return; }
@@ -198,12 +202,24 @@ function cloudInit() {
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     CLOUD.auth = firebase.auth();
     CLOUD.db = firebase.database();
-    CLOUD.auth.signInAnonymously().then(() => {
-      CLOUD.ready = true; CLOUD.online = true;
+    // 🔐 مصادقة حقيقية: كل حساب = Firebase Auth — نفس المعرف على كل الأجهزة، وقواعد أمان لكل مستخدم
+    CLOUD.auth.onAuthStateChanged(async u => {
+      CLOUD.ready = true;
       attachCloud();
-    }).catch(() => {
-      CLOUD.ready = false; CLOUD.online = false;
-      setTimeout(cloudInit, 4000);
+      flushCloud();
+      if (u && !ME) {
+        try {
+          const snap = await dbRef('users/' + u.uid).get();
+          const prof = snap.val();
+          if (prof && prof.active !== false) {
+            USERS[u.uid] = prof;
+            ME = prof;
+            enterApp();
+            return;
+          }
+        } catch (e) {}
+      }
+      if (!ME) renderAuth();
     });
     firebase.database().ref('.info/connected').on('value', s => {
       CLOUD.online = !!s.val();
@@ -213,12 +229,8 @@ function cloudInit() {
 }
 
 function attachCloud() {
-  dbRef('users').on('value', s => {
-    const v = s.val() || {};
-    Object.keys(v).forEach(k => { USERS[k] = v[k]; });
-    persistLocal();
-    if (ME && ME.role !== 'patient') render();
-  });
+  if (CLOUD._attached) return;
+  CLOUD._attached = true;
   dbRef('settings').on('value', s => {
     const v = s.val();
     if (v && typeof v === 'object') {
@@ -226,23 +238,69 @@ function attachCloud() {
       if (v.payEnabled !== undefined) SETTINGS.payEnabled = v.payEnabled;
       if (v.theme !== undefined) SETTINGS.theme = v.theme;
       if (v.logo !== undefined) SETTINGS.logo = v.logo || '';
-      if (v.adminHash) { SETTINGS.adminHash = v.adminHash; SETTINGS.adminSalt = v.adminSalt; }
+      if (v.dispUid !== undefined) SETTINGS.dispUid = v.dispUid;
       persistLocal();
       applyTheme();
     }
   });
+}
+/* يوزر «الطلبات» بيسمع كل الحسابات والحالات (القواعد بتسمحله بده بس) */
+function attachDispatcherCloud() {
+  if (!CLOUD.ready || !ME || ME._dispAttached) return;
+  ME._dispAttached = true;
+  dbRef('users').on('value', s => {
+    const v = s.val() || {};
+    Object.keys(v).forEach(k => { USERS[k] = v[k]; });
+    persistLocal();
+    if (ME && ME.role === 'dispatcher') render();
+  });
   dbRef('cases').on('value', s => {
     const v = s.val() || {};
-    let mine = false;
-    Object.keys(v).forEach(k => {
-      const c = v[k];
-      const relevant = ME && (c.patientUid === ME.uid || c.providerUid === ME.uid || ME.role === 'admin' || ME.role === 'dispatcher' || (ME.role === c.type && c.status === 'new'));
-      if (relevant || CASES[k]) { CASES[k] = c; if (relevant) mine = true; }
-    });
+    Object.keys(v).forEach(k => { CASES[k] = v[k]; });
     persistLocal();
-    if (mine) render();
+    if (ME && ME.role === 'dispatcher') render();
   });
-  if (ME) attachMyNotifs();
+}
+/* المريض بيسمع بياناته هو بس: ملفه + إشعاراته + حالاته */
+function attachMyCloud() {
+  if (!CLOUD.ready || !ME || ME._myAttached) return;
+  ME._myAttached = true;
+  attachMyNotifs();
+  attachMyCases();
+  pullMyCases();
+  dbRef('users/' + ME.uid).on('value', s => {
+    const v = s.val();
+    if (v) { USERS[ME.uid] = Object.assign({}, v); Object.assign(ME, v); persistLocal(); }
+  });
+}
+function attachMyCases() {
+  if (!CLOUD.ready || !ME || ME._casesAttached) return;
+  ME._casesAttached = true;
+  dbRef('ucases/' + ME.uid).on('value', s => {
+    const v = s.val() || {};
+    Object.keys(v).forEach(id => attachCaseLive(id));
+  });
+}
+function attachCaseLive(id) {
+  if (!id || CASE_SUBS[id]) return;
+  CASE_SUBS[id] = true;
+  dbRef('cases/' + id).on('value', s => {
+    const c = s.val();
+    if (c) {
+      CASES[id] = c; persistLocal();
+      if (CUR.case === id || CUR.tab === 'home' || CUR.tab === 'cases') render();
+    }
+  });
+}
+function detachCloud() {
+  try {
+    dbRef('users').off(); dbRef('cases').off(); dbRef('settings').off();
+    dbRef('ucases').off(); dbRef('unotifs').off();
+    Object.keys(CASE_SUBS).forEach(id => dbRef('cases/' + id).off());
+    CASE_SUBS = {};
+    CLOUD._attached = false;
+    if (ME) { ME._myAttached = false; ME._casesAttached = false; ME._dispAttached = false; ME._notifAttached = false; }
+  } catch (e) {}
 }
 function attachMyNotifs() {
   if (!CLOUD.ready || !ME || ME._notifAttached) return;
@@ -309,27 +367,49 @@ async function doAuth(e) {
     const pass = $('#f-pass').value;
     if (pass.length < 6) throw new Error('كلمة المرور لازم 6 حروف على الأقل');
     if (!/[a-zA-Z]/.test(pass) || !/\d/.test(pass)) throw new Error('كلمة المرور لازم تحتوي على حروف وأرقام مع بعض');
+    if (!CLOUD.ready) throw new Error('مفيش نت دلوقتي — جرّب تاني لما الاتصال يرجع');
+    detachCloud();
+    const email = emailFor(phone);
     if (authMode === 'reg') {
       const name = $('#f-name').value.trim();
       if (name.split(/\s+/).length < 2) throw new Error('اكتب اسمك على الأقل اسمين');
-      const role = 'patient'; // التسجيل الجديد للمرضى بس — يوزر «الطلبات» بيتزرع تلقائيًا
-      const existing = Object.values(USERS).find(u => u.phone === phone && u.role === role);
-      if (existing && phone !== OWNER_PHONE) throw new Error('الرقم ده مسجل بنفس الدور قبل كده — ادخل بيه من تسجيل الدخول');
-      const hp = await SEC.hashNew(pass);
-      const u = { uid: uid(), name, phone, role, salt: hp.salt, pass: hp.pass, gov: '', centers: '', active: true, createdAt: Date.now() };
+      let cred;
+      try {
+        cred = await CLOUD.auth.createUserWithEmailAndPassword(email, pass);
+      } catch (err) {
+        const c = (err && err.code) || '';
+        if (c === 'auth/email-already-in-use') throw new Error('الرقم مسجل قبل كده — ادخل بيه من تسجيل الدخول');
+        if (c === 'auth/network-request-failed') throw new Error('مفيش نت — جرّب لما الاتصال يرجع');
+        if (c === 'auth/weak-password') throw new Error('كلمة المرور ضعيفة — 6 حروف على الأقل');
+        throw err;
+      }
+      // أول حساب بالرقم الشخصي للمالك = يوزر «الطلبات»
+      const isOwner = phone === OWNER_PHONE && !SETTINGS.dispUid;
+      const u = { uid: cred.user.uid, name, phone, role: isOwner ? 'dispatcher' : 'patient', gov: '', centers: '', active: true, createdAt: Date.now() };
       USERS[u.uid] = u;
       ME = u;
+      if (isOwner) { SETTINGS.dispUid = u.uid; pushSettings(); }
       pushUser(u);
       enterApp();
       toast('🎉 أهلاً بيك في رعايتك يا ' + name.split(' ')[0], 'ok');
     } else {
-      const cands = Object.values(USERS).filter(x => x.phone === phone);
-      if (!cands.length) throw new Error('الرقم أو كلمة المرور غلط — جرّب تاني');
-      const matches = [];
-      for (const c of cands) { const v = await SEC.verify(c, pass); if (v.ok) matches.push({ u: c, v }); }
-      if (!matches.length) throw new Error('الرقم أو كلمة المرور غلط — جرّب تاني');
-      if (matches.length > 1) { pickAccount(matches); return; }
-      await loginAs(matches[0].u, matches[0].v);
+      let cred;
+      try {
+        cred = await CLOUD.auth.signInWithEmailAndPassword(email, pass);
+      } catch (err) {
+        const c = (err && err.code) || '';
+        if (c === 'auth/user-not-found' || c === 'auth/invalid-credential' || c === 'auth/wrong-password') throw new Error('الرقم أو كلمة المرور غلط — جرّب تاني');
+        if (c === 'auth/network-request-failed') throw new Error('مفيش نت — جرّب لما الاتصال يرجع');
+        throw new Error('الرقم أو كلمة المرور غلط — جرّب تاني');
+      }
+      const snap = await dbRef('users/' + cred.user.uid).get();
+      const prof = snap.val();
+      if (!prof) throw new Error('الحساب موجود بس الملف مش متسجل — سجّل حساب جديد بنفس الرقم');
+      if (prof.active === false) throw new Error('الحساب موقوف من الإدارة — تواصل معانا');
+      USERS[cred.user.uid] = prof;
+      ME = prof;
+      enterApp();
+      toast('أهلاً بعودتك يا ' + prof.name.split(' ')[0], 'ok');
     }
   } catch (err) {
     toast(err.message || 'حصل خطأ، حاول تاني', 'err');
@@ -337,40 +417,20 @@ async function doAuth(e) {
   btn.disabled = false;
 }
 
-let PICK_MATCHES = [];
-function pickAccount(matches) {
-  PICK_MATCHES = matches;
-  openModal(`<h3>👥 الرقم ده عليه ${matches.length} حسابات — اختار</h3>
-    ${matches.map((m, i) => `<button class="btn btn-o btn-block" style="margin-top:8px;text-align:right" onclick="loginPick(${i})">${m.u.role === 'patient' ? '🧑' : m.u.role === 'doctor' ? '🩺' : m.u.role === 'nurse' ? '🤲' : '🧪'} <b>${esc(m.u.name)}</b> <small style="color:var(--muted)">(${ROLE_T[m.u.role]})</small></button>`).join('')}
-    <button class="btn btn-d btn-block" style="margin-top:10px" onclick="closeModal()">إلغاء</button>`);
-}
-async function loginPick(i) {
-  const m = PICK_MATCHES[i];
-  if (!m) return;
-  PICK_MATCHES = [];
-  closeModal();
-  await loginAs(m.u, m.v);
-}
-async function loginAs(u, v) {
-  if (v.upgraded) { u.salt = v.rec.salt; u.pass = v.rec.pass; delete u.password; pushUser(u); }
-  if (u.active === false) throw new Error('الحساب موقوف من الإدارة — تواصل معانا');
-  ME = u;
-  enterApp();
-  toast('أهلاً بعودتك يا ' + u.name.split(' ')[0], 'ok');
-}
-
 function enterApp() {
   LSset('raia_ses', ME.uid);
-  attachMyNotifs();
-  pullMyCases();
+  attachMyCloud();
+  if (ME.role === 'dispatcher') attachDispatcherCloud();
   CUR.tab = 'home';
   render();
 }
 function logout() {
+  detachCloud();
   LSdel('raia_ses');
   ME = null; NOTIFS = {};
   authMode = 'login';
-  render();
+  if (CLOUD.auth) CLOUD.auth.signOut().catch(() => {});
+  renderAuth();
 }
 async function pullMyCases() {
   if (!CLOUD.ready || !ME) return;
@@ -434,6 +494,8 @@ function render() {
 
 function go(tab) { CUR.tab = tab; render(); window.scrollTo({ top: 0 }); }
 
+function isOwner() { return ME && SETTINGS.dispUid && ME.uid === SETTINGS.dispUid; }
+
 function renderHome() {
   const cases = myCases();
   const active = cases.filter(c => c.status !== 'done').length;
@@ -452,7 +514,7 @@ function renderHome() {
       ${cases.length ? cases.slice(0, 5).map(caseCard).join('') : '<div class="empty"><span class="ic">🌿</span>لسه مفيش حالات — اطلب أول خدمة من فوق</div>'}
       ${cases.length > 5 ? `<button class="btn btn-o btn-block" style="margin-top:12px" onclick="go('cases')">كل الحالات (${cases.length})</button>` : ''}
     </div>`;
-  } else if (ME.role === 'admin') {
+  } else if (ME.role === 'admin' || (isOwner() && CUR.ownerView === 'admin')) {
     html = renderAdminHome();
   } else if (ME.role === 'dispatcher') {
     html = renderDispatcherHome();
@@ -502,6 +564,7 @@ function renderDispatcherHome() {
       <span class="st st-way" style="font-size:.8rem;padding:7px 14px">${all.length} إجمالي الطلبات</span>
     </div>
   </div>
+  ${isOwner() ? `<div class="card"><h3>⚙️ لوحة تحكم الموقع</h3><p class="hint" style="margin-bottom:10px">إنستا باي QR، ألوان الموقع، طرق الدفع، ومعاينة الموقع كأي فئة.</p><button class="btn btn-p btn-block" onclick="CUR.ownerView='admin';render()">فتح لوحة التحكم ←</button></div>` : ''}
   <div class="card">
     <div class="tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
       ${tabs.map(([k, label]) => {
@@ -1207,48 +1270,49 @@ function changePassModal() {
 async function doChangePass() {
   if (noPreview()) return;
   const oldP = $('#cp-old').value, newP = $('#cp-new').value;
-  const v = await SEC.verify(ME, oldP);
-  if (!v.ok) { toast('القديمة غلط', 'err'); return; }
   if (newP.length < 6) { toast('الجديدة لازم 6+ حروف', 'err'); return; }
   if (!/[a-zA-Z]/.test(newP) || !/\d/.test(newP)) { toast('الجديدة لازم تحتوي على حروف وأرقام مع بعض', 'err'); return; }
-  const hp = await SEC.hashNew(newP);
-  ME.salt = hp.salt; ME.pass = hp.pass;
-  USERS[ME.uid] = ME;
-  persistLocal();
-  pushUser(ME);
-  closeModal();
-  toast('✅ اتغيرت كلمة المرور — استخدمها في أي جهاز', 'ok');
+  try {
+    await CLOUD.auth.signInWithEmailAndPassword(CLOUD.auth.currentUser.email, oldP); // تأكيد القديمة + تجديد الجلسة
+    await CLOUD.auth.currentUser.updatePassword(newP);
+    closeModal();
+    toast('✅ اتغيرت كلمة المرور — استخدمها في أي جهاز', 'ok');
+  } catch (e) {
+    toast('القديمة غلط — جرّب تاني', 'err');
+  }
 }
 
 /* ============================================================
    لوحة الإدارة
    ============================================================ */
-async function adminPrompt() {
-  if (!SETTINGS.adminHash) {
-    const hp = await SEC.hashNew('mhmd@1993');
-    SETTINGS.adminHash = hp.pass; SETTINGS.adminSalt = hp.salt;
-    persistLocal(); pushSettings();
-  }
-  openModal(`<h3>🔐 لوحة الإدارة</h3>
-    <div class="field"><label>كلمة مرور الإدارة</label><input class="inp" type="password" id="ad-pass" placeholder="••••••••"></div>
+function adminPrompt() {
+  openModal(`<h3>📞 دخول «الطلبات»</h3>
+    <div class="field"><label>رقم التليفون</label><input class="inp" id="ad-phone" inputmode="numeric" maxlength="11" placeholder="01xxxxxxxxx"></div>
+    <div class="field"><label>كلمة المرور</label><input class="inp" type="password" id="ad-pass" placeholder="••••••••"></div>
     <button class="btn btn-p btn-block" onclick="adminLogin()">دخول</button>`);
 }
 async function adminLogin() {
-  const ok = await SEC._sha(SETTINGS.adminSalt + ':' + $('#ad-pass').value) === SETTINGS.adminHash;
-  if (!ok) { toast('كلمة المرور غلط', 'err'); return; }
-  closeModal();
-  if (!ME) {
-    const u = Object.values(USERS).find(x => x.role === 'admin') || { uid: 'admin-root', name: 'الإدارة', phone: '-', role: 'admin', gov: '', centers: '*', active: true };
-    u.role = 'admin';
-    USERS[u.uid] = u;
-    ME = u;
-    LSset('raia_ses', u.uid);
-    attachMyNotifs();
+  const phone = ($('#ad-phone').value || '').trim();
+  const pass = $('#ad-pass').value;
+  if (!PHONE_RE.test(phone)) { toast('اكتب رقم تليفون صحيح (11 رقم يبدأ بـ 01)', 'err'); return; }
+  try {
+    const cred = await CLOUD.auth.signInWithEmailAndPassword(emailFor(phone), pass);
+    const snap = await dbRef('users/' + cred.user.uid).get();
+    const prof = snap.val();
+    if (!prof || prof.role !== 'dispatcher') {
+      await CLOUD.auth.signOut().catch(() => {});
+      toast('ده مش حساب «الطلبات»', 'err');
+      return;
+    }
+    detachCloud();
+    closeModal();
+    USERS[prof.uid] = prof;
+    ME = prof;
+    enterApp();
+    toast('أهلاً بيك في نوافذ الطلبات', 'ok');
+  } catch (e) {
+    toast('الرقم أو كلمة المرور غلط', 'err');
   }
-  ME.role = 'admin';
-  CUR.tab = 'home';
-  render();
-  toast('أهلاً بيك في لوحة الإدارة', 'ok');
 }
 
 function renderAdminHome() {
@@ -1256,6 +1320,7 @@ function renderAdminHome() {
   const cases = Object.values(CASES).filter(c => !c.cancelled);
   const today = new Date().setHours(0, 0, 0, 0);
   return `
+  ${ME.role === 'admin' ? '' : `<button class="btn btn-o btn-sm" style="margin-bottom:10px" onclick="CUR.ownerView='disp';render()">⬅ رجوع للطلبات</button>`}
   <div class="card">
     <h3>🛡️ لوحة تحكم رعايتك</h3>
     <div class="stat-grid">
@@ -1371,7 +1436,7 @@ function togglePay() {
 /* معاينة الموقع كأي فئة — وضع تجريبي مش بيحفظ حاجة */
 let PREVIEW_BACK = null;
 function previewAs(role) {
-  if (!ME || ME.role !== 'admin') return;
+  if (!ME || (ME.role !== 'admin' && !isOwner())) return;
   PREVIEW_BACK = ME;
   ME = { uid: '__preview__', name: 'معاينة — ' + (ROLE_T[role] || role), phone: '', role, gov: '', centers: '*', active: true, preview: true };
   CUR.tab = 'home'; CUR.providerTab = 'new';
@@ -1444,32 +1509,12 @@ $$('#bottomnav button').forEach(b => b.onclick = () => go(b.dataset.nav));
 (function boot() {
   cloudInit();
   applyTheme();
-  // زرع يوزر «الطلبات» لو مش موجود (بيسمع كل طلبات كل الفئات)
-  (async () => {
-    try {
-      if (!Object.values(USERS).some(u => u.role === 'dispatcher')) {
-        const hp = await SEC.hashNew('mhmd@1993');
-        const d = { uid: 'dispatcher', name: 'الطلبات', phone: OWNER_PHONE, role: 'dispatcher', salt: hp.salt, pass: hp.pass, gov: '', centers: '*', active: true, createdAt: Date.now() };
-        USERS[d.uid] = d; persistLocal(); pushUser(d);
-      }
-      // 🧹 تنظيف: حذف كل الحسابات القديمة (طبيب/تمريض/معمل/إدارة) — النظام الجديد مريض + «الطلبات» بس
-      const legacyIds = [];
-      Object.values(USERS).forEach(u => {
-        if (u.role !== 'patient' && u.role !== 'dispatcher') legacyIds.push(u.uid);
-      });
-      if (legacyIds.length) {
-        legacyIds.forEach(id => { delete USERS[id]; });
-        persistLocal();
-        if (CLOUD.ready) legacyIds.forEach(id => cloudSchedule(() => dbRef('users/' + id).remove()));
-      }
-    } catch (e) {}
-  })();
-  const ses = LSget('raia_ses', null);
-  if (ses && USERS[ses]) {
-    ME = USERS[ses];
-    attachMyNotifs();
-    pullMyCases();
-  }
+  // 🧹 تنظيف محلي: حذف الحسابات القديمة (طبيب/تمريض/معمل/إدارة) — النظام الجديد مريض + «الطلبات» بس
+  try {
+    const legacyIds = Object.values(USERS).filter(u => u.role !== 'patient' && u.role !== 'dispatcher').map(u => u.uid);
+    legacyIds.forEach(id => { delete USERS[id]; });
+    if (legacyIds.length) persistLocal();
+  } catch (e) {}
   // فتح مباشر من اختصارات التطبيق: #new-doctor / #new-nurse / #new-lab
   const h = (location.hash || '').replace('#', '');
   if (ME && /^new-(doctor|nurse|lab)$/.test(h)) { CUR.tab = 'new'; newType = h.split('-')[1]; }
